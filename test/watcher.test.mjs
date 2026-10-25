@@ -8,9 +8,10 @@ let posts=[{id:'100',text:'기존 합성 게시글'}];
 let nextPage=null;
 let sourceStatus=200;
 let discordStatus=200;
+let threadMode=false;
 const calls=[];
 function html(rows,cursor){
-  return '<html>'+rows.map(p=>`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/${p.id}"></a><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 12:00 PM UTC"></a></span></div><div class="tweet-content">${p.text}</div></div>`).join('')+(cursor?'<div class="show-more"><a href="?cursor=fixture-next">more</a></div>':'')+'</html>';
+  return '<html>'+(threadMode?'<div class="thread-line">':'')+rows.map(p=>`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/${p.id}"></a><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 12:00 PM UTC"></a></span></div><div class="tweet-content">${p.text}</div></div>`).join('')+(threadMode?'</div>':'')+(cursor?'<div class="show-more"><a href="?cursor=fixture-next">more</a></div>':'')+'</html>';
 }
 const mf=new Miniflare({
   modules:true,script:await readFile(new URL('../.build/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
@@ -26,7 +27,7 @@ const mf=new Miniflare({
     if(url.hostname==='generativelanguage.googleapis.com'){
       const body=await request.json();const input=JSON.parse(body.contents[0].parts[0].text);calls.push({kind:'ai',text:input.text});
       const rest=input.text.includes('Rest and reset');
-      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status:rest?'unrelated':'scheduled',summary_ko:rest?'휴식에 관한 글입니다.':'Codex 사용량 초기화 예정입니다.',evidence:input.text,time_expression:rest?'':'tomorrow at 9am PT'})}]}}],usageMetadata:{totalTokenCount:100}});
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status:rest?'unrelated':'scheduled',summary_ko:rest?'휴식에 관한 글입니다.':'초기화 예정입니다.',evidence:input.text,time_expression:rest?'':input.text==='By midnight PST'?input.text:'tomorrow at 9am PT'})}]}}],usageMetadata:{totalTokenCount:100}});
     }
     if(url.hostname==='discord.com'){
       const body=await request.json();calls.push({kind:'discord',body,status:discordStatus,authorization:request.headers.get('Authorization'),path:url.pathname});
@@ -84,5 +85,13 @@ try{
     posts=[{id:'108',text:'합성 새 글 108'},{id:'107',text:'합성 새 글 107'}];nextPage=[{id:'106',text:'저장된 합성 글'},{id:'105',text:'Codex usage limits will reset tomorrow at 9am PT.'}];
     await poll();await waitFor(async()=>(await row('108'))?.phase==='done'&&(await row('107'))?.phase==='done');await waitFor(()=>calls.some(c=>c.kind==='source'&&c.cursor==='fixture-next'));await waitPoll();
     assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l106').length,1);
+  });
+  await test('새 시간 답글은 기준점 이전 본문의 reset 문맥으로 분석한다',async()=>{
+    await db.prepare('UPDATE analysis_budget SET calls=0').run();nextPage=null;threadMode=true;
+    posts=[{id:'99',text:'Day 1/ Rest and reset'},{id:'109',text:'By midnight PST'}];
+    await poll();await waitFor(async()=>(await row('109'))?.phase==='done');await waitPoll();
+    const saved=await row('109');assert.equal(JSON.parse(saved.context_json)[0].id,'99');
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r109');assert.equal(sent.length,1);assert.match(sent[0].body.content,/한국시간, KST\)까지/);
+    assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l99').length,0);
   });
 }finally{await mf.dispose();}
