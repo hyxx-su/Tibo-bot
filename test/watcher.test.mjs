@@ -12,7 +12,7 @@ let aiStatus=200;
 let threadMode=false;
 const calls=[];
 function html(rows,cursor){
-  return '<html>'+(threadMode?'<div class="thread-line">':'')+rows.map(p=>`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/${p.id}"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 12:00 PM UTC"></a></span></div><div class="tweet-content">${p.text}</div>${p.media??''}</div></div>`).join('')+(threadMode?'</div>':'')+(cursor?'<div class="show-more"><a href="?cursor=fixture-next">more</a></div>':'')+'</html>';
+  return '<html>'+(threadMode?'<div class="thread-line">':'')+rows.map(p=>`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/${p.id}"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="${p.date??'Oct 25, 2026 · 12:00 PM UTC'}"></a></span></div><div class="tweet-content">${p.text}</div>${p.media??''}${p.quote?`<div class="quote"><a class="quote-link" href="/${p.quote.author??'thsottiaux'}/status/${p.quote.id}"></a><a class="username" href="/${p.quote.author??'thsottiaux'}"></a><span class="tweet-date"><a title="Oct 25, 2026 · 3:40 AM UTC"></a></span><div class="quote-text">${p.quote.text}</div></div>`:''}</div></div>`).join('')+(threadMode?'</div>':'')+(cursor?'<div class="show-more"><a href="?cursor=fixture-next">more</a></div>':'')+'</html>';
 }
 const mf=new Miniflare({
   modules:true,script:await readFile(new URL('../.build/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
@@ -27,14 +27,15 @@ const mf=new Miniflare({
     }
     if(url.hostname==='generativelanguage.googleapis.com'){
       if(aiStatus!==200)return new Response('unavailable',{status:aiStatus});
-      const body=await request.json();const input=JSON.parse(body.contents[0].parts[0].text);calls.push({kind:'ai',text:input.text});
+      const body=await request.json();const input=JSON.parse(body.contents[0].parts[0].text);calls.push({kind:'ai',text:input.text,context:input.context});
       const rest=input.text.includes('Rest and reset');
+      if(input.text==='It is all propagated.'||input.text==='Still propagating.')return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status:input.text==='It is all propagated.'?'completed':'in_progress',summary_ko:'Tibo가 반영 상태를 안내했습니다.',evidence:input.text,time_expression:'By midnight PST'})}]}}]});
       return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status:rest?'unrelated':'scheduled',summary_ko:rest?'휴식에 관한 글입니다.':'초기화 예정입니다.',evidence:input.text,time_expression:rest?'':input.text==='By midnight PST'?input.text:'tomorrow at 9am PT'})}]}}],usageMetadata:{totalTokenCount:100}});
     }
     if(url.hostname==='discord.com'){
-      const body=await request.json();calls.push({kind:'discord',body,status:discordStatus,authorization:request.headers.get('Authorization'),path:url.pathname});
+      const body=await request.json();calls.push({kind:'discord',body,status:discordStatus,authorization:request.headers.get('Authorization'),path:url.pathname,method:request.method});
       if(discordStatus!==200)return Response.json({retry_after:120},{status:discordStatus});
-      return Response.json({id:'message-'+body.nonce});
+      return Response.json({id:request.method==='PATCH'?url.pathname.split('/').at(-1):'message-'+body.nonce});
     }
     throw new Error('Unexpected destination');
   },
@@ -90,7 +91,7 @@ try{
   });
   await test('새 시간 답글은 기준점 이전 본문의 reset 문맥으로 분석한다',async()=>{
     await db.prepare('UPDATE analysis_budget SET calls=0').run();nextPage=null;threadMode=true;
-    posts=[{id:'99',text:'Day 1/ Rest and reset'},{id:'109',text:'By midnight PST'}];
+    posts=[{id:'99',text:'Day 1/ Rest and reset'},{id:'109',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC'}];
     await poll();await waitFor(async()=>(await row('109'))?.phase==='done');await waitPoll();
     const saved=await row('109');assert.equal(JSON.parse(saved.context_json)[0].id,'99');
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r109');assert.equal(sent.length,1);assert.match(sent[0].body.content,/다음 자정까지/);
@@ -118,5 +119,23 @@ try{
       const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/'+id);assert.equal((sent[0].body.flags??0)&4,0);
     }
     assert.equal((await row('112')).body,'');assert.equal(calls.filter(c=>c.kind==='ai').length,aiBefore);
+  });
+  await test('reset 없는 인용 완료 글도 저장된 예고 문맥과 함께 Gemini로 분석해 통합 전송한다',async()=>{
+    posts=[{id:'114',text:'It is all propagated.',date:'Oct 25, 2026 · 6:06 AM UTC',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>(await row('114'))?.phase==='done');await waitPoll();
+    const analysis=calls.find(c=>c.kind==='ai'&&c.text==='It is all propagated.');assert.ok(analysis.context.some(p=>p.id==='99'&&p.text.includes('reset')));
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('114'));assert.equal(sent.length,1);assert.match(sent[0].body.content,/^# 초기화 완료/);assert.match(sent[0].body.content,/기존 예상 · 10월 25일 17:00/);assert.match(sent[0].body.content,/앞서 완료/);assert.match(sent[0].body.content,/status\/114$/);
+  });
+  await test('진행 중인 인용 공지를 완료 메시지로 보내지 않는다',async()=>{
+    posts=[{id:'115',text:'Still propagating.',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>(await row('115'))?.phase==='done');await waitPoll();const sent=calls.find(c=>c.kind==='discord'&&c.body.nonce==='r115');assert.match(sent.body.content,/초기화 진행 공지/);assert.doesNotMatch(sent.body.content,/초기화 완료/);
+  });
+  await test('다른 작성자의 인용만으로 Gemini 분석을 시작하지 않는다',async()=>{
+    const before=calls.filter(c=>c.kind==='ai').length;posts=[{id:'116',text:'무관한 인용',quote:{id:'109',text:'By midnight PST',author:'someone'}},...posts];await poll();await waitFor(async()=>(await row('116'))?.phase==='done');await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai').length,before);
+  });
+  await test('관리자 단건 재분석은 기존 링크 메시지를 수정하며 반복 호출로 중복 발송하지 않는다',async()=>{
+    posts=[{id:'117',text:'It is all propagated.',date:'Oct 25, 2026 · 6:06 AM UTC'},...posts];await poll();await waitFor(async()=>(await row('117'))?.phase==='done');await waitPoll();
+    await db.prepare("UPDATE watched_posts SET message_id='900117' WHERE id='117'").run();posts[0].quote={id:'109',text:'By midnight PST'};
+    await queue.send({kind:'watch-reanalyze',postId:'117'});await waitFor(async()=>(await row('117'))?.reset_message_id==='900117');
+    assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l117').length,1);const edit=calls.filter(c=>c.kind==='discord'&&c.method==='PATCH');assert.equal(edit.length,1);assert.match(edit[0].body.content,/^# 초기화 완료/);assert.ok(edit[0].path.endsWith('/900117'));
+    const before=calls.filter(c=>c.kind==='source').length;await queue.send({kind:'watch-reanalyze',postId:'117'});await poll();await waitFor(()=>calls.filter(c=>c.kind==='source').length>=before+2);await waitPoll();assert.equal(calls.filter(c=>c.kind==='discord'&&c.method==='PATCH').length,1);
   });
 }finally{await mf.dispose();}

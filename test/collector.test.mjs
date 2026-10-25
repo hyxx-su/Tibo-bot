@@ -26,6 +26,10 @@ const mf=new Miniflare({
       const media={image:'<img src="/pic/fixture.jpg">',gif:'<video poster="/pic/fixture.jpg"><source src="/video/fixture.mp4"></video>',video:'<video data-url="/video/fixture.m3u8"></video>',source:'<video><source src="/video/fixture.mp4"></video>',empty:'<img src="">',quote:'',avatar:''}[scenario.slice(6)];
       return new Response(`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/301"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 3:40 AM UTC"></a></span><img class="avatar" src="/pic/avatar.jpg"></div><div class="tweet-content"></div><div class="attachments">${media}</div><div class="quote"><div class="attachments"><img src="/pic/quoted.jpg"></div></div></div></div>`);
     }
+    if(scenario.startsWith('quote-')){
+      const other=scenario==='quote-other';const id=scenario==='quote-future'?'501':'201';const username=other?'someone':'thsottiaux';
+      return new Response(`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/500"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 6:06 AM UTC"></a></span></div><div class="tweet-content">It is all propagated.</div><div class="quote"><a class="quote-link" href="/${username}/status/${id}"></a><div class="tweet-header"><a class="username" href="/${username}"></a><span class="tweet-date"><a title="Oct 25, 2026 · 3:40 AM UTC"></a></span></div><div class="quote-text">By midnight PST</div><div class="tweet-content">인용 내부 본문</div></div></div></div>`);
+    }
     if(scenario==='thread')return new Response(`<div class="thread-line"><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/201"></a><div class="tweet-content">Day 1/ Rest and reset</div></div><div class="timeline-item" data-username="someone"><a class="tweet-link" href="/someone/status/202"></a><div class="tweet-content">untrusted other author</div></div><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/203"></a><div class="tweet-content">By midnight PST</div></div></div><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/204"></a><div class="tweet-content">unrelated next post</div></div>`);
     return new Response(timelineHtml({incomplete:scenario==='incomplete'}));
   },
@@ -70,6 +74,12 @@ try{
   });
   await test('수집 연결 실패는 처리된 오류로 반환한다',async()=>{
     scenario='failure';assert.equal((await mf.dispatchFetch('http://test/')).status,503);
+  });
+  await test('자신의 인용만 문맥으로 보존하고 현재 글의 본문·날짜를 덮어쓰지 않는다',async()=>{
+    scenario='quote-own';const post=await(await mf.dispatchFetch('http://test/')).json();assert.equal(post.text,'It is all propagated.');assert.equal(post.date,'Oct 25, 2026 · 6:06 AM UTC');assert.deepEqual(post.context,[{id:'201',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC',relation:'quote'}]);
+  });
+  for(const kind of ['other','future'])await test('타인 또는 미래 ID의 인용을 작성자 문맥으로 쓰지 않는다: '+kind,async()=>{
+    scenario='quote-'+kind;const post=await(await mf.dispatchFetch('http://test/')).json();assert.equal(post.context,undefined);
   });
   await test('같은 스레드의 앞선 동일 작성자 본문만 답글 문맥으로 보존한다',async()=>{
     scenario='thread';const rows=await(await mf.dispatchFetch('http://test/?mode=parse')).json();

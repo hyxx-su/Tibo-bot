@@ -62,8 +62,34 @@ try{
     result={...result,evidence:'Invented announcement'};
     await assert.rejects(()=>analyzeReset({GEMINI_API_KEY:'fixture'},post),/evidence/);
   });
+  await test('인용의 게시 날짜가 없으면 새 글 날짜를 대신 써서 기한을 만들지 않는다',async()=>{
+    const saved=result;result={status:'scheduled',summary_ko:'초기화 예정 안내입니다.',evidence:'A reset is planned.',time_expression:'By midnight PST'};
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},{...post,text:'A reset is planned.',context:[{id:'1',text:'By midnight PST',date:null}]});assert.equal(analysis.time,null);result=saved;
+  });
+  await test('완료 판단은 현재 글에 근거해야 하며 인용 속 완료 문구만으로 확정하지 않는다',async()=>{
+    const saved=result;result={status:'completed',summary_ko:'완료 안내입니다.',evidence:'Earlier reset completed.',time_expression:''};
+    await assert.rejects(()=>analyzeReset({GEMINI_API_KEY:'fixture'},{...post,text:'Not yet.',context:[{id:'1',text:'Earlier reset completed.',date:post.date}]}),/Current post evidence/);result=saved;
+  });
+  await test('진행 공지를 완료로 표시하거나 인용한 과거 기한을 현재 시각으로 표시하지 않는다',async()=>{
+    const saved=result;result={status:'in_progress',summary_ko:'Tibo가 초기화 반영 진행 중이라고 안내했습니다.',evidence:'Still propagating.',time_expression:'By midnight PST'};
+    const current={id:'125',date:'Oct 25, 2026 · 6:06 AM UTC',text:'Still propagating.',context:[{id:'124',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC'}]};
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);assert.equal(analysis.time,null);const content=resetNotification(current,analysis);assert.match(content,/초기화 진행 공지 감지/);assert.match(content,/# 10월 25일 15:06/);assert.doesNotMatch(content,/초기화 완료|17:00/);result=saved;
+  });
   await test('완료 공지와 무관한 글을 예정으로 표시하지 않는다',()=>{
-    assert.match(resetNotification(post,{status:'completed',summary_ko:'초기화 완료'}),/^\*\*:warning: 초기화 완료 공지 감지/);
+    assert.match(resetNotification(post,{status:'completed',summary_ko:'초기화 완료'}),/^# 초기화 완료/);
     assert.equal(resetNotification(post,{status:'unrelated'}),null);
   });
 }finally{globalThis.fetch=originalFetch;}
+
+
+await test('조기 완료는 지정한 형식에 비교 문구를 한 번만 추가한다',()=>{
+  const current={id:'200',date:'Oct 25, 2026 · 6:06 AM UTC'};
+  const analysis={status:'completed',summary_ko:'모델이 만든 시간 비교 문구는 사용하지 않습니다.',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')};
+  assert.equal(resetNotification(current,analysis),'# 초기화 완료\n-# 기존 예상 · 10월 25일 17:00 (KST)\n\nTibo가 사용량 초기화의 전체 반영이 완료되었다고 안내했습니다. 기존 예상 시각보다 앞서 완료된 것으로 보입니다.\n\nhttps://x.com/thsottiaux/status/200');
+});
+for(const date of ['Oct 25, 2026 · 8:00 AM UTC','Oct 25, 2026 · 9:00 AM UTC','invalid'])await test('예상보다 이르다는 근거가 없으면 비교 문구를 넣지 않는다: '+date,()=>{
+  const message=resetNotification({id:'200',date},{status:'completed',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')});assert.doesNotMatch(message,/앞서 완료/);
+});
+await test('기존 예상 시각이 없으면 추측하지 않는다',()=>{
+  const message=resetNotification({id:'200',date:'Oct 25, 2026 · 6:06 AM UTC'},{status:'completed'});assert.match(message,/기존 예상 시각 미확인/);assert.doesNotMatch(message,/앞서 완료/);
+});
