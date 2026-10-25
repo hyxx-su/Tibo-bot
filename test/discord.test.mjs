@@ -13,7 +13,7 @@ const pages={first:timelineHtml()};
 const calls=[];
 const mf=new Miniflare({
   modules:true,script:await readFile(new URL('../.build/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
-  bindings:{DISCORD_PUBLIC_KEY:publicKey,DISCORD_APPLICATION_ID:'1',DISCORD_TEST_GUILD_ID:'2',DISCORD_TEST_CHANNEL_ID:'3',GEMINI_API_KEY:'synthetic-test-key'},
+  bindings:{DISCORD_BOT_TOKEN:'synthetic-bot',DISCORD_PUBLIC_KEY:publicKey,DISCORD_APPLICATION_ID:'1',DISCORD_TEST_GUILD_ID:'2',DISCORD_TEST_CHANNEL_ID:'3',GEMINI_API_KEY:'synthetic-test-key'},
   durableObjects:{COMMAND_GUARD:{className:'DiscordCommandGuard',useSQLite:true}},d1Databases:['DB'],queueProducers:{PROBE_JOBS:'discord-fixture'},queueConsumers:{'discord-fixture':{maxBatchSize:1,maxBatchTimeout:0,maxRetries:2,retryDelay:0}},
   outboundService:async request=>{
     const url=new URL(request.url);
@@ -23,11 +23,22 @@ const mf=new Miniflare({
       return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({category:'unrelated',summary_ko:'합성 테스트 데이터에 관한 요약입니다.'})}]}}],usageMetadata:{totalTokenCount:100}});
     }
     if(url.hostname==='discord.com'){
+      if(request.method==='GET'){
+        const path=url.pathname.replace('/api/v10','');
+        if(path==='/guilds/20')return Response.json({id:'20',owner_id:'90'});
+        if(path==='/guilds/20/roles')return Response.json([{id:'20',permissions:'19456'}]);
+        if(path==='/guilds/20/members/90')return Response.json({user:{id:'90'},roles:[]});
+        if(path==='/guilds/20/members/1')return Response.json({user:{id:'1'},roles:[]});
+        if(path==='/channels/30')return Response.json({id:'30',guild_id:'20',type:0,permission_overwrites:[]});
+        throw new Error('Unexpected setup destination');
+      }
       calls.push({kind:'discord',method:request.method,path:url.pathname,body:await request.json()});return Response.json({id:'fixture-message'});
     }
     throw new Error('Unexpected outbound fixture destination');
   },
 });
+const setupDb=await mf.getD1Database('DB');
+await setupDb.batch((await readFile(new URL('../migrations/0003_guild_channels.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>setupDb.prepare(s)));
 const base={type:2,application_id:'1',guild_id:'2',channel_id:'3',id:'9001',member:{permissions:'32'},token:'synthetic-interaction-token',data:{name:'검증'}};
 async function signed(raw,overrides={}){
   const timestamp=overrides['X-Signature-Timestamp']??String(Math.floor(Date.now()/1000));
@@ -76,6 +87,21 @@ try{
     const queue=await mf.getQueueProducer('PROBE_JOBS');const job={kind:'discord-reply',interactionToken:base.token,interactionId:base.id,expiresAt:Date.now()+60000,post:{id:latestId},analysis:{category:'unrelated',summary_ko:'중복 처리 시험'}};
     await queue.send(job);await queue.send(job);await waitFor(()=>calls.filter(c=>c.kind==='discord').length===3);
     const replies=calls.filter(c=>c.kind==='discord');assert.equal(new Set(replies.map(r=>r.path)).size,1);assert.ok(replies.every(r=>r.method==='PATCH'));
+  });
+  await check('새 서버의 관리자가 알림설정 메뉴를 비공개로 열 수 있다',async()=>{
+    const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'알림설정'}}))).json();
+    assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.components[0].components[0].type,8);assert.deepEqual(response.data.components[0].components[0].channel_types,[0,5]);
+  });
+  await check('일반 사용자와 DM의 메뉴 선택은 설정을 변경하지 않는다',async()=>{
+    for(const fields of [{member:{permissions:'0',user:{id:'90'}}},{guild_id:undefined}]){
+      const response=await(await signed(JSON.stringify({...base,type:3,guild_id:'20',data:{custom_id:'tibo:notify-channel',values:['30']},...fields}))).json();assert.equal(response.type,4);assert.equal(response.data.flags,64);
+    }
+    assert.equal(await setupDb.prepare("SELECT * FROM guild_settings WHERE guild_id='20'").first(),null);
+  });
+  await check('서명된 채널 메뉴 선택은 지연 응답 후 실제 설정과 비공개 확인을 저장한다',async()=>{
+    const response=await(await signed(JSON.stringify({...base,type:3,id:'9200',guild_id:'20',member:{permissions:'32',user:{id:'90'}},data:{custom_id:'tibo:notify-channel',values:['30']}}))).json();assert.equal(response.type,5);assert.equal(response.data.flags,64);
+    await waitFor(()=>calls.some(c=>c.kind==='discord'&&c.body.content.includes('이제 <#30>')));
+    assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
   });
 }finally{await mf.dispose();}
 

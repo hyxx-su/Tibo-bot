@@ -28,7 +28,7 @@ test('Gateway 연결·인증·복구 경로',async t=>{
       globalThis.fetch=async()=>{count++;return count===1?discovery():{webSocket:socket};};
       try{
         await Promise.all([gateway.ensure(),gateway.ensure()]);assert.equal(count,2);assert.ok(writes.some(state=>state.nextIdentifyAt>Date.now()));
-        socket.message(hello);assert.equal(socket.sent[0].op,2);assert.equal(socket.sent[0].d.intents,0);assert.equal(socket.sent[0].d.presence.status,'online');
+        socket.message(hello);assert.equal(socket.sent[0].op,2);assert.equal(socket.sent[0].d.intents,1);assert.equal(socket.sent[0].d.presence.status,'online');
         socket.message(ready);socket.message({op:1});assert.deepEqual(socket.sent.at(-1),{op:1,d:42});socket.message({op:11});
         const state=await(await gateway.fetch(new Request('https://test/status'))).json();assert.equal(state.status,'online');assert.ok(state.lastHeartbeatAck);assert.ok(!JSON.stringify(state).includes('synthetic'));
         await gateway.ensure();assert.equal(count,2);
@@ -90,4 +90,15 @@ test('Gateway 연결·인증·복구 경로',async t=>{
       await maintainGateway({GATEWAY:{idFromName(){return 'one';},get(){return {fetch(){throw Error('synthetic unavailable');}};}}});
     });
   }finally{globalThis.fetch=originalFetch;}
+});
+
+await test('서버 입퇴장 이벤트는 수신 순서대로 처리하고 일시 unavailable을 전달한다',async()=>{
+  const {gateway,env}=await fixture();const writes=[];
+  env.DB={prepare:sql=>({bind:(...args)=>({run:async()=>{writes.push({sql,args});}})})};env.PROBE_JOBS={async send(job){writes.push(job);}};
+  gateway.receive({op:0,t:'GUILD_CREATE',s:1,d:{id:'20'}});
+  gateway.receive({op:0,t:'GUILD_DELETE',s:2,d:{id:'20',unavailable:true}});
+  gateway.receive({op:0,t:'GUILD_DELETE',s:3,d:{id:'20'}});
+  await gateway.guildEvents;
+  assert.equal(writes.filter(w=>w.kind==='guild-welcome').length,1);assert.equal(writes.filter(w=>w.sql?.includes('active=0')).length,1);
+  assert.ok(writes.findIndex(w=>w.kind==='guild-welcome')<writes.findIndex(w=>w.sql?.includes('active=0')));
 });
