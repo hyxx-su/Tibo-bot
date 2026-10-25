@@ -28,9 +28,13 @@ const mf=new Miniflare({
     if(url.hostname==='generativelanguage.googleapis.com'){
       if(aiStatus!==200)return new Response('unavailable',{status:aiStatus});
       const body=await request.json();const input=JSON.parse(body.contents[0].parts[0].text);calls.push({kind:'ai',text:input.text,context:input.context});
-      const rest=input.text.includes('Rest and reset');
-      if(input.text==='It is all propagated.'||input.text==='Still propagating.')return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status:input.text==='It is all propagated.'?'completed':'in_progress',summary_ko:'Tibo가 반영 상태를 안내했습니다.',evidence:input.text,time_expression:'By midnight PST'})}]}}]});
-      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status:rest?'unrelated':'scheduled',summary_ko:rest?'휴식에 관한 글입니다.':'초기화 예정입니다.',evidence:input.text,time_expression:rest?'':input.text==='By midnight PST'?input.text:'tomorrow at 9am PT'})}]}}],usageMetadata:{totalTokenCount:100}});
+      const contextHasReset=input.context.some(source=>/reset/i.test(source.text));
+      let status='unrelated',time_expression='';
+      if(['It is all propagated.','Still propagating.','Finished across every account.'].includes(input.text)&&contextHasReset)status=input.text==='Still propagating.'?'in_progress':'completed';
+      else if(input.text.includes('will reset tomorrow at 9am PT.')){status='scheduled';time_expression='tomorrow at 9am PT';}
+      else if(input.text==='By midnight PST'&&contextHasReset){status='scheduled';time_expression=input.text;}
+      else if(input.text==='Usage allowances were replenished for everyone.')status='completed';
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status,summary_ko:status==='unrelated'?'초기화와 무관한 글입니다.':'Tibo가 사용량 초기화 상태를 안내했습니다.',evidence:status==='unrelated'?'':input.text,time_expression})}]}}],usageMetadata:{totalTokenCount:100}});
     }
     if(url.hostname==='discord.com'){
       const body=await request.json();calls.push({kind:'discord',body,status:discordStatus,authorization:request.headers.get('Authorization'),path:url.pathname,method:request.method});
@@ -52,9 +56,9 @@ try{
   await test('첫 실행은 기준점만 저장하고 과거 글을 발송하지 않는다',async()=>{
     await poll();await waitFor(async()=>(await db.prepare('SELECT baseline_id FROM watch_state WHERE id=1').first()).baseline_id==='100');await waitPoll();assert.equal(calls.filter(c=>c.kind==='discord').length,0);
   });
-  await test('새 글은 원문 링크만 발송하고 일반 글은 AI를 호출하지 않는다',async()=>{
+  await test('일반 글도 Gemini로 분석한 뒤 원문 링크만 한 번 발송한다',async()=>{
     posts=[{id:'101',text:'새 합성 게시글'},...posts];await poll();await waitFor(async()=>(await row('101'))?.phase==='done');await waitPoll();
-    const sent=calls.filter(c=>c.kind==='discord');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/101');assert.deepEqual(sent[0].body.allowed_mentions,{parse:[]});assert.equal(sent[0].body.enforce_nonce,true);assert.equal((sent[0].body.flags??0)&4,0);assert.equal(sent[0].authorization,'Bot synthetic-token');assert.equal(calls.filter(c=>c.kind==='ai').length,0);
+    const sent=calls.filter(c=>c.kind==='discord');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/101');assert.deepEqual(sent[0].body.allowed_mentions,{parse:[]});assert.equal(sent[0].body.enforce_nonce,true);assert.equal((sent[0].body.flags??0)&4,0);assert.equal(sent[0].authorization,'Bot synthetic-token');assert.equal(calls.filter(c=>c.kind==='ai').length,1);assert.equal(JSON.parse((await row('101')).analysis_json).status,'unrelated');
   });
   await test('중복 Queue 메시지는 이미 보낸 링크를 다시 보내지 않는다',async()=>{
     await queue.send({kind:'watch-post',postId:'101',phase:'link'});await queue.send({kind:'watch-post',postId:'101',phase:'link'});
@@ -75,10 +79,14 @@ try{
     await Promise.all([queue.send({kind:'watch-post',postId:'104',phase:'link'}),queue.send({kind:'watch-post',postId:'104',phase:'link'})]);
     await waitFor(async()=>(await row('104'))?.phase==='done');assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l104'&&c.status===200).length,1);
   });
-  await test('일일 분석 상한에서는 별도 링크를 보내지 않고 통합 메시지를 대기한다',async()=>{
+  await test('키워드 없는 일반 글도 분석 상한이면 대기하고 다음 기회에 재개한다',async()=>{
     await db.prepare('UPDATE analysis_budget SET calls=100').run();const before=calls.filter(c=>c.kind==='ai').length;
-    posts=[{id:'105',text:'Codex usage limits will reset tomorrow at 9am PT.'},...posts];await poll();await waitFor(async()=>(await row('105'))?.last_error==='daily_analysis_limit');await waitPoll();
+    posts=[{id:'105',text:'일일 상한 중 새 일반 게시글'},...posts];await poll();await waitFor(async()=>(await row('105'))?.last_error==='daily_analysis_limit');await waitPoll();
     assert.equal((await row('105')).message_id,null);assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce.endsWith('105')).length,0);assert.equal(calls.filter(c=>c.kind==='ai').length,before);
+    await db.prepare('UPDATE analysis_budget SET calls=0').run();
+    await db.prepare("UPDATE watched_posts SET next_attempt=0 WHERE id='105'").run();
+    await queue.send({kind:'watch-post',postId:'105',phase:'analyze'});await waitFor(async()=>(await row('105'))?.phase==='done');
+    assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l105').length,1);
   });
   await test('수집원 장애 중에도 이미 저장된 전송 작업을 복구한다',async()=>{
     await db.prepare("INSERT INTO watched_posts (id,body,published_at,phase,discovered_at) VALUES ('106','저장된 합성 글','Oct 25, 2026 · 12:00 PM UTC','link',0)").run();
@@ -118,7 +126,7 @@ try{
     for(const id of ['111','112','113']){
       const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/'+id);assert.equal((sent[0].body.flags??0)&4,0);
     }
-    assert.equal((await row('112')).body,'');assert.equal(calls.filter(c=>c.kind==='ai').length,aiBefore);
+    assert.equal((await row('112')).body,'');assert.equal(calls.filter(c=>c.kind==='ai').length,aiBefore+3);assert.equal(calls.filter(c=>c.kind==='ai'&&c.text==='').length,2);
   });
   await test('reset 없는 인용 완료 글도 저장된 예고 문맥과 함께 Gemini로 분석해 통합 전송한다',async()=>{
     posts=[{id:'114',text:'It is all propagated.',date:'Oct 25, 2026 · 6:06 AM UTC',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>(await row('114'))?.phase==='done');await waitPoll();
@@ -128,14 +136,24 @@ try{
   await test('진행 중인 인용 공지를 완료 메시지로 보내지 않는다',async()=>{
     posts=[{id:'115',text:'Still propagating.',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>(await row('115'))?.phase==='done');await waitPoll();const sent=calls.find(c=>c.kind==='discord'&&c.body.nonce==='r115');assert.match(sent.body.content,/초기화 진행 공지/);assert.doesNotMatch(sent.body.content,/초기화 완료/);
   });
-  await test('다른 작성자의 인용만으로 Gemini 분석을 시작하지 않는다',async()=>{
-    const before=calls.filter(c=>c.kind==='ai').length;posts=[{id:'116',text:'무관한 인용',quote:{id:'109',text:'By midnight PST',author:'someone'}},...posts];await poll();await waitFor(async()=>(await row('116'))?.phase==='done');await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai').length,before);
+  await test('다른 작성자의 인용 본문은 제외하되 새 글 자체는 Gemini로 분석한다',async()=>{
+    const before=calls.filter(c=>c.kind==='ai').length;posts=[{id:'116',text:'무관한 인용',quote:{id:'109',text:'By midnight PST',author:'someone'}},...posts];await poll();await waitFor(async()=>(await row('116'))?.phase==='done');await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai').length,before+1);assert.deepEqual(calls.filter(c=>c.kind==='ai').at(-1).context,[]);assert.equal(JSON.parse((await row('116')).analysis_json).status,'unrelated');
   });
   await test('관리자 단건 재분석은 기존 링크 메시지를 수정하며 반복 호출로 중복 발송하지 않는다',async()=>{
     posts=[{id:'117',text:'It is all propagated.',date:'Oct 25, 2026 · 6:06 AM UTC'},...posts];await poll();await waitFor(async()=>(await row('117'))?.phase==='done');await waitPoll();
-    await db.prepare("UPDATE watched_posts SET message_id='900117' WHERE id='117'").run();posts[0].quote={id:'109',text:'By midnight PST'};
+    // 이전 버전에서 분석 없이 링크만 보낸 운영 이력을 재현한다.
+    await db.prepare("UPDATE watched_posts SET message_id='900117',analysis_json=NULL WHERE id='117'").run();posts[0].quote={id:'109',text:'By midnight PST'};
     await queue.send({kind:'watch-reanalyze',postId:'117'});await waitFor(async()=>(await row('117'))?.reset_message_id==='900117');
     assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l117').length,1);const edit=calls.filter(c=>c.kind==='discord'&&c.method==='PATCH');assert.equal(edit.length,1);assert.match(edit[0].body.content,/^# 초기화 완료/);assert.ok(edit[0].path.endsWith('/900117'));
     const before=calls.filter(c=>c.kind==='source').length;await queue.send({kind:'watch-reanalyze',postId:'117'});await poll();await waitFor(()=>calls.filter(c=>c.kind==='source').length>=before+2);await waitPoll();assert.equal(calls.filter(c=>c.kind==='discord'&&c.method==='PATCH').length,1);
+  });
+  await test('키워드·인용 없는 명시적 초기화도 Gemini 완료 결과로 한 번만 발송한다',async()=>{
+    posts=[{id:'118',text:'Usage allowances were replenished for everyone.'},...posts];await poll();await waitFor(async()=>(await row('118'))?.phase==='done');await waitPoll();
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('118'));assert.equal(sent.length,1);assert.match(sent[0].body.content,/^# 초기화 완료/);assert.ok(calls.some(c=>c.kind==='ai'&&c.text===posts[0].text));
+    await queue.send({kind:'watch-post',postId:'118',phase:'link'});await poll();await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai'&&c.text===posts[0].text).length,1);
+  });
+  await test('짧은 완료 답글은 연결된 초기화 본문과 함께 분석한다',async()=>{
+    threadMode=true;posts=[{id:'118',text:'Codex usage reset is being applied.'},{id:'119',text:'Finished across every account.'}];await poll();await waitFor(async()=>(await row('119'))?.phase==='done');await waitPoll();threadMode=false;
+    assert.ok(calls.find(c=>c.kind==='ai'&&c.text==='Finished across every account.').context.some(p=>p.id==='118'));assert.match(calls.find(c=>c.kind==='discord'&&c.body.nonce==='r119').body.content,/^# 초기화 완료/);
   });
 }finally{await mf.dispose();}

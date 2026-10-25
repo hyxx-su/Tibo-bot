@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseResetTime,formatKoreanTime,publishedTimestamp} from '../src/reset-time.js';
-import {analyzeReset,hasResetKeyword,resetNotification} from '../src/reset-analysis.js';
+import {analyzeReset,resetNotification} from '../src/reset-analysis.js';
 import {scheduleWatch} from '../src/watcher.js';
 
 const published=Date.parse('2026-10-25T12:00:00Z');
@@ -30,10 +30,6 @@ await test('명시된 PST와 서머타임을 따르는 PT를 구분한다',()=>{
   assert.equal(parseResetTime('By midnight PST',at).timestamp-parseResetTime('By midnight PT',at).timestamp,3600000);
 });
 await test('미러 게시 시각의 UTC를 보존한다',()=>assert.equal(publishedTimestamp({date:'Oct 25, 2026 · 12:00 PM UTC'}),published));
-await test('reset 변형과 한국어 초기화를 분석 대상으로 선택한다',()=>{
-  for(const text of ['reset','resets','resetting','초기화'])assert.equal(hasResetKeyword(text),true);
-  assert.equal(hasResetKeyword('preset settings'),false);
-});
 await test('비활성화 상태의 예약 실행은 큐를 사용하지 않는다',async()=>{
   let calls=0;const env={PROBE_JOBS:{async send(job){assert.equal(job.kind,'watch-poll');calls++;}}};
   await scheduleWatch(env);assert.equal(calls,0);await scheduleWatch({...env,WATCH_ENABLED:'true'});assert.equal(calls,1);
