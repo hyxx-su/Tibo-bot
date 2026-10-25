@@ -51,7 +51,12 @@ export class DiscordGateway {
       this.control.nextIdentifyAt=Date.now()+120000;
       await this.ctx.storage.put('control',this.control);
     }
-    const response=await fetch(gatewayUrl(url),{headers:{Upgrade:'websocket'},signal:AbortSignal.timeout(10000)});
+    const controller=new AbortController();
+    const upgradeTimeout=setTimeout(()=>controller.abort(),10000);
+    let response;
+    // 업그레이드 뒤까지 timeout이 살아 있으면 정상 WebSocket도 중단된다.
+    try{response=await fetch(gatewayUrl(url),{headers:{Upgrade:'websocket'},signal:controller.signal});}
+    finally{clearTimeout(upgradeTimeout);}
     if(!response.webSocket){await response.body?.cancel();throw new Error('Gateway upgrade failed');}
     const ws=response.webSocket;this.ws=ws;this.acked=true;
     ws.accept();
