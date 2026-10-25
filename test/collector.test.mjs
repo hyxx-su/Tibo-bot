@@ -19,6 +19,10 @@ const mf=new Miniflare({
     if(scenario==='403'||scenario==='429')return new Response('unavailable',{status:Number(scenario)});
     if(scenario==='failure')throw new Error('synthetic connection failure');
     if(scenario==='empty')return new Response('<html>maintenance</html>');
+    if(scenario.startsWith('media-')){
+      const media={image:'<img src="/pic/fixture.jpg">',gif:'<video poster="/pic/fixture.jpg"><source src="/video/fixture.mp4"></video>',video:'<video data-url="/video/fixture.m3u8"></video>',source:'<video><source src="/video/fixture.mp4"></video>',empty:'<img src="">',quote:'',avatar:''}[scenario.slice(6)];
+      return new Response(`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/301"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 3:40 AM UTC"></a></span><img class="avatar" src="/pic/avatar.jpg"></div><div class="tweet-content"></div><div class="attachments">${media}</div><div class="quote"><div class="attachments"><img src="/pic/quoted.jpg"></div></div></div></div>`);
+    }
     if(scenario==='thread')return new Response(`<div class="thread-line"><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/201"></a><div class="tweet-content">Day 1/ Rest and reset</div></div><div class="timeline-item" data-username="someone"><a class="tweet-link" href="/someone/status/202"></a><div class="tweet-content">untrusted other author</div></div><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/203"></a><div class="tweet-content">By midnight PST</div></div></div><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/204"></a><div class="tweet-content">unrelated next post</div></div>`);
     return new Response(timelineHtml({incomplete:scenario==='incomplete'}));
   },
@@ -44,6 +48,13 @@ try{
   });
   await test('본문이나 날짜가 빠진 표본을 거부한다',async()=>{
     scenario='incomplete';assert.equal((await mf.dispatchFetch('http://test/')).status,503);
+  });
+  for(const kind of ['image','gif','video','source'])await test(`본문 없는 ${kind} 첨부 답글을 수집한다`,async()=>{
+    scenario='media-'+kind;const response=await mf.dispatchFetch('http://test/');assert.equal(response.status,200);
+    const post=await response.json();assert.equal(post.id,'301');assert.equal(post.text,'');assert.equal(post.hasMedia,true);
+  });
+  for(const kind of ['empty','quote','avatar'])await test(`${kind}만으로 빈 게시글을 정상 첨부 글로 오인하지 않는다`,async()=>{
+    scenario='media-'+kind;assert.equal((await mf.dispatchFetch('http://test/')).status,503);
   });
   await test('HTTPS가 아닌 설정은 외부 요청 전에 거부한다',async()=>{
     const before=outboundCalls;assert.equal((await mf.dispatchFetch('http://test/?base=http://fixture.test')).status,503);assert.equal(outboundCalls,before);

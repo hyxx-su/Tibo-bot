@@ -12,7 +12,7 @@ let aiStatus=200;
 let threadMode=false;
 const calls=[];
 function html(rows,cursor){
-  return '<html>'+(threadMode?'<div class="thread-line">':'')+rows.map(p=>`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/${p.id}"></a><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 12:00 PM UTC"></a></span></div><div class="tweet-content">${p.text}</div></div>`).join('')+(threadMode?'</div>':'')+(cursor?'<div class="show-more"><a href="?cursor=fixture-next">more</a></div>':'')+'</html>';
+  return '<html>'+(threadMode?'<div class="thread-line">':'')+rows.map(p=>`<div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/${p.id}"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="Oct 25, 2026 · 12:00 PM UTC"></a></span></div><div class="tweet-content">${p.text}</div>${p.media??''}</div></div>`).join('')+(threadMode?'</div>':'')+(cursor?'<div class="show-more"><a href="?cursor=fixture-next">more</a></div>':'')+'</html>';
 }
 const mf=new Miniflare({
   modules:true,script:await readFile(new URL('../.build/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
@@ -108,5 +108,15 @@ try{
     await db.prepare("INSERT INTO watched_posts (id,body,published_at,phase,attempts,discovered_at) VALUES ('110','reset fixture','Oct 25, 2026 · 12:00 PM UTC','analyze',5,0)").run();
     await queue.send({kind:'watch-post',postId:'110',phase:'analyze'});await waitFor(async()=>(await row('110'))?.phase==='done');
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce.endsWith('110'));assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/110');aiStatus=200;
+  });
+  await test('이미지·GIF만 있는 답글과 함께 올라온 일반 글을 모두 한 번씩 전송한다',async()=>{
+    const aiBefore=calls.filter(c=>c.kind==='ai').length;
+    posts=[{id:'113',text:'',media:'<div class="attachments"><video poster="/pic/gif.jpg"><source src="/video/gif.mp4"></video></div>'},{id:'112',text:'',media:'<div class="attachments"><img src="/pic/image.jpg"></div>'},{id:'111',text:'함께 올라온 일반 글'},{id:'110',text:'기존 글'}];
+    await poll();await waitFor(async()=>(await row('113'))?.phase==='done'&&(await row('112'))?.phase==='done'&&(await row('111'))?.phase==='done');await waitPoll();
+    await poll();await waitPoll();
+    for(const id of ['111','112','113']){
+      const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/'+id);assert.equal((sent[0].body.flags??0)&4,0);
+    }
+    assert.equal((await row('112')).body,'');assert.equal(calls.filter(c=>c.kind==='ai').length,aiBefore);
   });
 }finally{await mf.dispose();}
