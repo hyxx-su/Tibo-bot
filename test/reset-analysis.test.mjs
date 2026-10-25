@@ -21,6 +21,14 @@ for(const expression of ['at 9am PT','tomorrow at 9am','2026-02-30 at 9am UTC','
   await test(`불확실하거나 잘못된 시간을 확정하지 않는다: ${expression}`,()=>assert.equal(parseResetTime(expression,published),null));
 }
 await test('한국시간 날짜 이월을 표시한다',()=>assert.equal(formatKoreanTime(Date.parse('2026-10-26T16:00:00Z')),'2026-10-27 01:00 (한국시간, KST)'));
+await test('By midnight PST는 게시 당시 PST 날짜의 다음 자정까지로 해석한다',()=>{
+  const time=parseResetTime('By midnight PST',Date.parse('2026-10-25T03:40:00Z'));
+  assert.equal(formatKoreanTime(time.timestamp),'2026-10-25 17:00 (한국시간, KST)');assert.equal(time.relation,'deadline');
+});
+await test('명시된 PST와 서머타임을 따르는 PT를 구분한다',()=>{
+  const at=Date.parse('2026-10-25T03:40:00Z');
+  assert.equal(parseResetTime('By midnight PST',at).timestamp-parseResetTime('By midnight PT',at).timestamp,3600000);
+});
 await test('미러 게시 시각의 UTC를 보존한다',()=>assert.equal(publishedTimestamp({date:'Oct 25, 2026 · 12:00 PM UTC'}),published));
 await test('reset 변형과 한국어 초기화를 분석 대상으로 선택한다',()=>{
   for(const text of ['reset','resets','resetting','초기화'])assert.equal(hasResetKeyword(text),true);
@@ -39,6 +47,12 @@ try{
   await test('원문의 시간 표현만 변환해 초기화 예정 알림에 넣는다',async()=>{
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
     assert.match(resetNotification(post,analysis),/초기화 예정\n한국시간: 2026-10-27 01:00/);
+  });
+  await test('reset 없는 시간 답글과 연결 본문을 함께 분석하고 기한을 표시한다',async()=>{
+    const reply={id:'124',date:'Oct 25, 2026 · 3:40 AM UTC',text:'By midnight PST',context:[{id:'123',date:'Oct 25, 2026 · 3:39 AM UTC',text:'Day 20/ Rest and reset'}]};
+    const saved=result;result={status:'scheduled',summary_ko:'스레드 문맥상 자정까지 초기화 예정으로 해석됩니다.',evidence:reply.context[0].text,time_expression:reply.text};
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},reply);const message=resetNotification(reply,analysis);
+    assert.match(message,/2026-10-25 17:00 \(한국시간, KST\)까지/);assert.match(message,/연결 본문: https:\/\/x.com\/thsottiaux\/status\/123/);result=saved;
   });
   await test('모델이 만든 원문 밖 시각은 버린다',async()=>{
     result={...result,time_expression:'2026-10-30 at 10am UTC'};

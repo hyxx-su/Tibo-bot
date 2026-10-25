@@ -19,6 +19,7 @@ const mf=new Miniflare({
     if(scenario==='403'||scenario==='429')return new Response('unavailable',{status:Number(scenario)});
     if(scenario==='failure')throw new Error('synthetic connection failure');
     if(scenario==='empty')return new Response('<html>maintenance</html>');
+    if(scenario==='thread')return new Response(`<div class="thread-line"><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/201"></a><div class="tweet-content">Day 1/ Rest and reset</div></div><div class="timeline-item" data-username="someone"><a class="tweet-link" href="/someone/status/202"></a><div class="tweet-content">untrusted other author</div></div><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/203"></a><div class="tweet-content">By midnight PST</div></div></div><div class="timeline-item" data-username="thsottiaux"><a class="tweet-link" href="/thsottiaux/status/204"></a><div class="tweet-content">unrelated next post</div></div>`);
     return new Response(timelineHtml({incomplete:scenario==='incomplete'}));
   },
 });
@@ -49,5 +50,9 @@ try{
   });
   await test('수집 연결 실패는 처리된 오류로 반환한다',async()=>{
     scenario='failure';assert.equal((await mf.dispatchFetch('http://test/')).status,503);
+  });
+  await test('같은 스레드의 앞선 동일 작성자 본문만 답글 문맥으로 보존한다',async()=>{
+    scenario='thread';const rows=await(await mf.dispatchFetch('http://test/?mode=parse')).json();
+    assert.equal(rows[1].id,'203');assert.equal(rows[1].context.length,1);assert.equal(rows[1].context[0].id,'201');assert.equal(rows[2].context,undefined);
   });
 }finally{await mf.dispose();}

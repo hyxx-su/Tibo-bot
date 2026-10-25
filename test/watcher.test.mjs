@@ -39,6 +39,7 @@ const mf=new Miniflare({
 const db=await mf.getD1Database('DB');const queue=await mf.getQueueProducer('PROBE_JOBS');
 const schema=await readFile(new URL('../migrations/0001_watch.sql',import.meta.url),'utf8');
 await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
+await db.prepare(await readFile(new URL('../migrations/0002_thread_context.sql',import.meta.url),'utf8')).run();
 async function waitFor(fn){const end=Date.now()+10000;while(Date.now()<end){if(await fn())return;await new Promise(resolve=>setTimeout(resolve,30));}throw new Error('Watch fixture timed out');}
 const row=id=>db.prepare('SELECT * FROM watched_posts WHERE id=?').bind(id).first();
 const poll=()=>scheduleWatch({WATCH_ENABLED:'true',PROBE_JOBS:queue});
