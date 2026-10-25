@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Cloudflare Workers에서 Tibo 게시글 수집과 Gemini 분석 연결을 확인하는 Discord 봇",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "check": "wrangler deploy --dry-run --config wrangler.example.jsonc --outdir .build",
     "test": "npm run check && node --test test/*.test.mjs",
@@ -15,5 +17,9 @@
   "devDependencies": {
     "miniflare": "4.20260730.0",
     "wrangler": "4.152.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.30.1"
   }
 }
