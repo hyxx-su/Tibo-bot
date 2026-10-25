@@ -14,7 +14,7 @@ export async function recordPage(db,posts,now) {
   const fresh=ordered.filter(post=>BigInt(post.id)>BigInt(state.baseline_id));
   let added=0;
   if(fresh.length){
-    const results=await db.batch(fresh.map(post=>db.prepare("INSERT OR IGNORE INTO watched_posts (id,body,published_at,phase,discovered_at) VALUES (?,?,?,'link',?)").bind(post.id,post.text,post.date,now)));
+    const results=await db.batch(fresh.map(post=>db.prepare("INSERT OR IGNORE INTO watched_posts (id,body,published_at,phase,discovered_at,context_json) VALUES (?,?,?,'link',?,?)").bind(post.id,post.text,post.date,now,JSON.stringify(post.context??[]))));
     added=results.reduce((sum,result)=>sum+result.meta.changes,0);
   }
   if(BigInt(newest)>BigInt(state.high_water_id))await db.prepare('UPDATE watch_state SET high_water_id=? WHERE id=1 AND high_water_id=?').bind(newest,state.high_water_id).run();

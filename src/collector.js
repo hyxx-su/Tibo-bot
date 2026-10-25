@@ -4,8 +4,10 @@ export async function parseTimelinePage(response) {
   const rows=[];
   let current;
   let nextCursor=null;
+  let thread=null;
   const rewriter=new HTMLRewriter()
-    .on('.timeline-item',{element(el){current={author:el.getAttribute('data-username'),id:null,text:'',date:null};rows.push(current);}})
+    .on('.thread-line',{element(el){thread=[];el.onEndTag(()=>{thread=null;});}})
+    .on('.timeline-item',{element(el){current={author:el.getAttribute('data-username'),id:null,text:'',date:null};if(thread){current.thread=thread;thread.push(current);}rows.push(current);}})
     .on('.timeline-item > .tweet-link',{element(el){if(current)current.id=el.getAttribute('href')?.match(/status\/(\d+)/)?.[1];}})
     .on('.timeline-item .tweet-header .tweet-date a',{element(el){if(current)current.date=el.getAttribute('title');}})
     .on('.timeline-item .tweet-content',{text(chunk){if(current)current.text+=chunk.text;}})
@@ -15,7 +17,13 @@ export async function parseTimelinePage(response) {
       if(href){const cursor=new URL(href,'https://source.invalid').searchParams.get('cursor');if(cursor)nextCursor=cursor;}
     }});
   await rewriter.transform(response).text();
-  return {posts:rows.filter(row=>row.author===author&&row.id&&!row.repost),nextCursor};
+  const posts=rows.filter(row=>row.author===author&&row.id&&!row.repost).map(row=>{
+    const context=(row.thread??[]).filter(other=>other!==row&&other.author===author&&other.id&&!other.repost&&BigInt(other.id)<BigInt(row.id))
+      .slice(-5).map(({id,text,date})=>({id,text,date}));
+    const {thread:ignored,...post}=row;
+    return context.length?{...post,context}:post;
+  });
+  return {posts,nextCursor};
 }
 
 export async function parseTimeline(response) {

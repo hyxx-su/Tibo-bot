@@ -31,6 +31,14 @@ export function publishedTimestamp(post) {
 export function parseResetTime(expression,publishedAt) {
   if(typeof expression!=='string'||!expression.trim()||!Number.isFinite(publishedAt))return null;
   const text=expression.trim();
+  const midnight=text.match(/^(by|before|at)\s+midnight\s+(UTC|GMT|KST|PST|PDT|PT|EST|EDT|ET)[.!]?$/i);
+  if(midnight){
+    const zoneName=midnight[2].toUpperCase();const zone=zones[zoneName];
+    const day=typeof zone==='number'?partsAt(publishedAt+zone*60000,'UTC'):partsAt(publishedAt,zone);
+    const next=new Date(Date.UTC(day.year,day.month-1,day.day+1));
+    const timestamp=localToUtc(next.getUTCFullYear(),next.getUTCMonth()+1,next.getUTCDate(),0,0,zone);
+    return timestamp===null?null:{timestamp,basis:`게시 당시 ${zoneName} 날짜의 다음 자정 (${zoneName} 기준)`,relation:/^(by|before)$/i.test(midnight[1])?'deadline':'at'};
+  }
   const relative=text.match(/\bin\s+(\d{1,3})\s+(minutes?|hours?)\b/i)??text.match(/(\d{1,3})\s*(분|시간)\s*후/);
   if(relative){
     const amount=Number(relative[1]);const unit=/hour|시간/i.test(relative[2])?3600000:60000;

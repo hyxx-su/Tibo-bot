@@ -57,10 +57,10 @@ async function processPost(env,job) {
   if(!row)return;
   let next;
   try{
-    const post={id:row.id,text:row.body,date:row.published_at};
+    const post={id:row.id,text:row.body,date:row.published_at,context:JSON.parse(row.context_json??'[]')};
     if(row.phase==='link'){
       const messageId=await sendNotification(env,row.id,`https://x.com/thsottiaux/status/${row.id}`,'link');
-      next=hasResetKeyword(row.body)?'analyze':'done';
+      next=hasResetKeyword([row.body,...post.context.map(p=>p.text)].join('\n'))?'analyze':'done';
       await advancePost(env.DB,row,token,next,{messageId});
     }else if(row.phase==='analyze'){
       const limit=Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100));
