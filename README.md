@@ -145,7 +145,7 @@ npm test
 
 배포 설정의 `durable_objects`와 SQLite 마이그레이션 이력을 유지하고 `GATEWAY_ENABLED`를 `"true"`로 설정합니다. 기존 `DISCORD_BOT_TOKEN`을 사용하며 추가 privileged intent는 필요하지 않습니다. 배포 후 다음 Cron 실행에서 연결을 시작합니다. 공개 `/health`는 최소 서비스 상태만 반환하며 내부 객체를 호출하지 않습니다. 실제 온라인 연결 상태는 Discord의 비공개 `/상태`로 확인합니다.
 
-연결 객체 이름은 고정되어 한 개만 사용합니다. Heartbeat ACK 누락, 연결 종료, Discord의 재접속 요청을 처리합니다. 살아 있는 세션은 재개하고, 새 인증은 재시작을 포함해 최소 2분 간격으로 제한합니다. 복구 대기는 최대 15분이며 치명적인 인증·설정 오류는 한 시간 동안 재시도를 제한합니다. `GATEWAY_ENABLED="false"`로 재배포하면 다음 Cron에서 연결을 종료합니다. 배포 설정에서 Durable Object 마이그레이션 이력을 임의로 삭제하지 마세요.
+연결 객체 이름은 고정되어 한 개만 사용합니다. Heartbeat ACK 누락, 연결 종료, Discord의 재접속 요청을 처리합니다. 살아 있는 세션은 재개하고, 새 인증은 재시작을 포함해 최소 2분 간격으로 제한합니다. 토큰의 SHA-256 해시로 교체를 구분하여 새 토큰에는 이전 인증 오류의 한 시간 대기를 적용하지 않습니다. 동일 토큰으로 재배포할 때는 대기가 유지됩니다. Gateway 저장소에는 토큰 원문을 저장하지 않습니다. 복구 대기는 최대 15분이며 치명적인 인증·설정 오류는 한 시간 동안 재시도를 제한합니다. `GATEWAY_ENABLED="false"`로 재배포하면 다음 Cron에서 연결을 종료합니다. 배포 설정에서 Durable Object 마이그레이션 이력을 임의로 삭제하지 마세요.
 
 [Cloudflare 공식 요금표](https://developers.cloudflare.com/durable-objects/platform/pricing/) 기준 Workers Free의 Durable Objects 실행 시간은 하루 13,000 GB-s입니다. 외부 WebSocket은 hibernation 대상이 아니므로 연결 중 실행 시간을 소비합니다. 객체 하나의 24시간 연결은 대략 11,000 GB-s로 무료 한도 안에 들어가는 계산이지만 계정의 다른 Durable Objects 사용량도 합산됩니다. 무료 한도 초과 시 해당 작업은 오류로 중단되며, 장애나 배포 중 일시적인 오프라인 표시는 발생할 수 있습니다.
 
