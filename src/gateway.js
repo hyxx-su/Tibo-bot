@@ -14,7 +14,16 @@ export class DiscordGateway {
   constructor(ctx,env) {
     this.ctx=ctx;this.env=env;this.ws=null;this.connecting=null;this.session=null;this.seq=null;
     this.status='offline';this.acked=true;this.lastAck=null;this.connectedAt=null;this.retryAt=0;this.failures=0;
-    ctx.blockConcurrencyWhile(async()=>{this.control=await ctx.storage.get('control')??{nextIdentifyAt:0,blockedUntil:0};});
+    ctx.blockConcurrencyWhile(async()=>{
+      this.control=await ctx.storage.get('control')??{nextIdentifyAt:0,blockedUntil:0};
+      const fingerprint=env.DISCORD_BOT_TOKEN?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(env.DISCORD_BOT_TOKEN))),byte=>byte.toString(16).padStart(2,'0')).join(''):null;
+      if(this.control.tokenFingerprint!==fingerprint){
+        // 새 토큰에는 이전 토큰의 인증 실패 대기를 적용하지 않는다. 인증 간격은 유지한다.
+        if(this.control.tokenFingerprint)this.control.blockedUntil=0;
+        this.control.tokenFingerprint=fingerprint;
+        await ctx.storage.put('control',this.control);
+      }
+    });
   }
 
   async fetch(request) {
