@@ -45,6 +45,12 @@ https://x.com/thsottiaux/status/POST_ID
 
 [Codex Resets의 과거 공지 기록](https://codex-resets.com/)에서 키워드 없는 짧은 완료 안내와 초기화권 지급 사례를 확인해 판별 지침을 보완했습니다. 이 사이트는 로봇이 분류한 비공식 참고 자료이며, 운영 중 외부 분류 결과를 그대로 완료 확정값으로 가져오지는 않습니다. 짧은 완료 답변은 실제 연결 문맥이 초기화를 가리킬 때만 사용합니다. 나중에 직접 사용하는 초기화권(`banked reset`) 지급만 안내하면 현재 사용량의 초기화 완료가 아닌 관련 안내로 보냅니다.
 
+## 운영 봇 초대
+
+[**Tibo 봇을 내 서버에 추가하기**](https://discord.com/oauth2/authorize?client_id=1563748365655867523&permissions=19456&integration_type=0&scope=bot%20applications.commands)
+
+현재 Discord 표시 이름은 `Tibo-test`입니다. 서버를 선택하고 승인한 뒤 환영 메뉴 또는 `/알림설정`으로 알림 채널을 선택하세요. 서버 설치 기본값은 `bot`·`applications.commands`와 채널 보기·메시지 보내기·링크 임베드 권한(`19456`)입니다. 설치 화면에서도 실제 요청 권한을 확인할 수 있습니다.
+
 ## 서버 입장과 알림 채널 설정
 
 봇이 서버에 입장하면 아래 안내와 채널 선택 메뉴를 보냅니다.
