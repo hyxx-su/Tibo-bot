@@ -39,10 +39,12 @@ export function parseResetTime(expression,publishedAt) {
     const timestamp=localToUtc(next.getUTCFullYear(),next.getUTCMonth()+1,next.getUTCDate(),0,0,zone);
     return timestamp===null?null:{timestamp,basis:`게시 당시 ${zoneName} 날짜의 다음 자정 (${zoneName} 기준)`,relation:/^(by|before)$/i.test(midnight[1])?'deadline':'at'};
   }
-  const relative=text.match(/\bin\s+(\d{1,3})\s+(minutes?|hours?)\b/i)??text.match(/(\d{1,3})\s*(분|시간)\s*후/);
+  const within=text.match(/\bwithin\s+(?:the\s+)?(?:next\s+)?(\d{1,3})\s+(minutes?|hours?)\b/i);
+  const relative=within??text.match(/\bin\s+(\d{1,3})\s+(minutes?|hours?)\b/i)??text.match(/(\d{1,3})\s*(분|시간)\s*후/);
   if(relative){
     const amount=Number(relative[1]);const unit=/hour|시간/i.test(relative[2])?3600000:60000;
-    return amount>0&&amount*unit<=7*86400000?{timestamp:publishedAt+amount*unit,basis:'게시 시각 기준 상대시간'}:null;
+    // within은 정확한 실행 시각이 아니라 게시 시각부터 계산한 상한이다.
+    return amount>0&&amount*unit<=7*86400000?{timestamp:publishedAt+amount*unit,basis:'게시 시각 기준 상대시간',...(within?{relation:'deadline'}:{})}:null;
   }
   const iso=text.match(/\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?(Z|[+-]\d{2}:\d{2})\b/i);
   if(iso){

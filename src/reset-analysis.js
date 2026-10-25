@@ -17,7 +17,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 제공된 본문과 context만 근거로 사용한다. 다른 과거 사례, 현재 시각, 최근에 예고가 있었다는 추측으로 문맥을 만들지 않는다. 이미지·GIF·링크 목적지 내용을 보았다고 가정하지 않는다.
 
 판단 순서
-1. 대상: 사용량·사용 한도의 초기화인가? 서비스 장애 복구, 새 모델·기능 배포, 한도 상향, 휴식, 비밀번호·기기 초기화는 별개다.
+1. 대상: 사용량·사용 한도의 초기화인가? 서비스 장애 복구, 새 모델·기능 배포, 한도 상향, 휴식, 비밀번호·기기 초기화는 별개다. 사용량 계산 오류 수정, 잘못 차감한 크레딧 환불·보상, 캐시 효율 개선도 초기화 사실이 명시되지 않으면 unrelated다. credits/usage/limits라는 단어만으로 초기화와 연결하지 않는다.
 2. 현재 글의 의도: 새 예정·진행·완료를 알리는가? context는 생략된 대상을 연결하는 용도이며 과거 공지를 현재 공지로 복사하는 용도가 아니다. 질문·요청·가정·희망·단순 회상은 실행 공지가 아니다.
 3. 상태: 현재 글의 시제·부정·진행·적용 범위를 함께 확인한다. 같은 글에 완료 표현과 남은 반영 작업이 함께 있으면 전체 완료로 분류하지 않는다.
 4. 근거와 시간: 아래 출력 규칙대로 원문 구절만 추출한다. 날짜나 실행 시각을 직접 계산하지 않는다.
@@ -35,12 +35,13 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 현재 글 자체가 과거 사용량 초기화를 구체적으로 회상하면 mentioned다. 예: 'Last month we reset usage limits.'는 새 완료가 아니지만 초기화 관련 언급이다. 반면 현재 'Thanks!' + 과거 완료 인용 → unrelated. 인용된 완료를 현재 글의 완료 증거로 쓰지 않는다.
 - 'Rest and reset' 단독은 휴식일 수 있다. 같은 스레드의 작성자가 'By midnight PST' 같은 기한을 덧붙이면 초기화 예고로 해석하고, 요약에 스레드 문맥에 따른 해석임을 표시한다. 원문에 없는 제품명은 덧붙이지 않는다.
 - 초기화와 기능 배포가 섞여 있으면 현재 완료 표현이 어느 대상을 가리키는지 확인한다. 기능만 완료되고 초기화가 진행 중이라면 in_progress다.
+- 'and reset', 'reset day', 'a reset for everyone' 같은 명사형 선언 뒤에 'Enjoy'가 있어도 완료 동작·상태의 근거는 아니다. 실행 시점이 없는 선언은 mentioned로 보류한다. 반면 초기화를 가리키는 'It is done', 'has been applied', 'fully propagated'는 완료 근거다. 단순히 독자에게 즐기라고 했다는 이유로 completed로 승격하지 않는다.
 
 출력 규칙
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
 - summary_ko: 작성자가 안내한 내용을 한국어 한 문장으로 요약한다. 대상·범위·예정/진행/완료·부정·불확실성을 보존한다. 개별 사용자 계정의 실제 반영을 직접 검증했다고 쓰지 않는다. 완료 시각이나 기존 예상보다 빠르다는 비교를 만들어 쓰지 않는다.
 - evidence: 관련 상태라면 현재 글 또는 context 한 글에 실제 존재하는 연속된 구절을 그대로 복사한다. completed/in_progress는 반드시 현재 text의 구절을 사용한다. 부정·일부·진행 중이라는 제한을 잘라 반대 의미의 근거로 제시하지 않는다. unrelated는 빈 문자열이다.
-- time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at 같은 기한·시각 구분도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours'. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
+- time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
       contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[]})}]}],
       generationConfig:{temperature:0,maxOutputTokens:1024,responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','summary_ko','evidence','time_expression']}},
@@ -55,11 +56,11 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   if(result.status!=='unrelated'&&(!result.evidence.trim()||!sources.some(source=>source.text.includes(result.evidence))||!result.summary_ko.trim()))throw new Error('Reset evidence missing');
   if(['completed','in_progress'].includes(result.status)&&!post.text.includes(result.evidence))throw new Error('Current post evidence missing');
   // 시각은 AI가 만든 날짜가 아니라, 원문에 실제 존재하는 시간 표현에서만 계산한다.
-  const expression=result.time_expression.trim();
+  const expression=result.status==='scheduled'?result.time_expression.trim():'';
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
-  const time=timeSource&&typeof timeSource.date==='string'&&!['completed','in_progress'].includes(result.status)?parseResetTime(expression,publishedTimestamp(timeSource)):null;
+  const time=timeSource&&typeof timeSource.date==='string'?parseResetTime(expression,publishedTimestamp(timeSource)):null;
   if(time&&/\b(by|before)\b|까지/i.test(expression))time.relation='deadline';
-  return {...result,summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
+  return {...result,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
 }
 
 export function resetNotification(post,analysis) {
