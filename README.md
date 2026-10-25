@@ -12,7 +12,7 @@ Tibo(`@thsottiaux`)의 새 X 게시글·답글을 Discord로 보내는 Cloudflar
 
 게시 시각이 `2026-10-25 12:00 UTC`이고 원문이 `tomorrow at 9am PT`라면 한국시간은 **2026-10-27 01:00**입니다. `in 2 hours`는 해당 게시 시각 기준으로 계산합니다. `By midnight PST`는 그 표현을 게시한 당시 PST 날짜의 다음 자정을 기한으로 계산합니다. 예를 들어 10월 25일 03:40 UTC의 해당 답글은 **10월 25일 17:00 KST까지**입니다. 원문의 PST는 UTC−8로 유지하며 PT(서머타임 적용 지역 시각)로 임의 교체하지 않습니다. 서머타임은 지역 시간대를 통해 반영하며, 전환 시점의 중복·존재하지 않는 시각은 확정하지 않습니다.
 
-Discord Gateway 상시 연결을 사용하지 않아 멤버 목록에는 **오프라인**으로 보일 수 있습니다. 자동 확인·발신과 명령 응답은 Cloudflare에서 실행됩니다.
+`GATEWAY_ENABLED="true"`이면 Cloudflare Durable Object 한 개가 Discord Gateway 연결을 유지하여 멤버 목록에 **온라인**으로 표시합니다. 맥북을 켜둘 필요가 없습니다. 연결이 끊기면 기존 Cron이 재접속을 시도하며, 알림 수집·발송은 별도 경로로 계속 실행됩니다.
 
 ## 초기화 알림 예시
 
@@ -46,6 +46,7 @@ https://x.com/thsottiaux/status/POST_ID
 | `src/index.js` | HTTP·Cron·Queue 진입점 |
 | `src/discord.js` | Ed25519 서명 확인과 명령 응답 |
 | `src/collector.js` | 대상 작성자 게시글·답글과 다음 페이지 추출 |
+| `src/gateway.js` | 온라인 상태, Heartbeat 확인, 세션 재개·재접속 제한 |
 | `src/watcher.js` | 예약 수집, 링크 발송, 분석·공지 진행 |
 | `src/watch-store.js` | 기준점·처리 이력, 작업 점유와 재시도, 일일 분석 상한 |
 | `src/reset-analysis.js` | 초기화 분류, 원문 근거 확인, 공지 구성 |
@@ -136,3 +137,12 @@ npm test
 `npm test`는 배포 없는 빌드 후 72개 테스트를 실행합니다. 실제 계정·키·게시글을 사용하지 않으며 외부 API는 합성 응답으로 대체합니다. 기준점, 링크 단독 발송, 시간 변환과 DST, 중복 작업, 429 재시도, 장애 중 작업 복구, 분석 상한, 여러 페이지 수집, Discord 서명을 검증합니다.
 
 실제 서비스 실행 기록과 한계는 [검증 기록](docs/verification.md)에 정리합니다.
+
+
+## 온라인 표시 설정
+
+배포 설정의 `durable_objects`와 `v1-gateway` SQLite 마이그레이션을 유지하고 `GATEWAY_ENABLED`를 `"true"`로 설정합니다. 기존 `DISCORD_BOT_TOKEN`을 사용하며 추가 privileged intent는 필요하지 않습니다. 배포 후 다음 Cron 실행에서 연결을 시작합니다. `/health`의 `gateway`에는 연결 상태, 연결 시각, 마지막 Heartbeat ACK 시각만 표시하며 토큰·세션 ID는 공개하지 않습니다.
+
+연결 객체 이름은 고정되어 한 개만 사용합니다. Heartbeat ACK 누락, 연결 종료, Discord의 재접속 요청을 처리합니다. 살아 있는 세션은 재개하고, 새 인증은 재시작을 포함해 최소 2분 간격으로 제한합니다. 복구 대기는 최대 15분이며 치명적인 인증·설정 오류는 한 시간 동안 재시도를 제한합니다. `GATEWAY_ENABLED="false"`로 재배포하면 다음 Cron에서 연결을 종료합니다. 배포 설정에서 Durable Object 마이그레이션 이력을 임의로 삭제하지 마세요.
+
+[Cloudflare 공식 요금표](https://developers.cloudflare.com/durable-objects/platform/pricing/) 기준 Workers Free의 Durable Objects 실행 시간은 하루 13,000 GB-s입니다. 외부 WebSocket은 hibernation 대상이 아니므로 연결 중 실행 시간을 소비합니다. 객체 하나의 24시간 연결은 대략 11,000 GB-s로 무료 한도 안에 들어가는 계산이지만 계정의 다른 Durable Objects 사용량도 합산됩니다. 무료 한도 초과 시 해당 작업은 오류로 중단되며, 장애나 배포 중 일시적인 오프라인 표시는 발생할 수 있습니다.
