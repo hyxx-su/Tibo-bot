@@ -90,16 +90,29 @@ async function processPost(env,job) {
   }
 }
 
+async function replayPost(env,postId) {
+  if(!/^\d{1,20}$/.test(postId??''))throw new Error('Invalid replay post');
+  const page=await collectTimelinePage(env.NITTER_BASE_URL);
+  const post=page.posts.find(post=>post.id===postId);
+  if(!post)throw new Error('Replay post not on current timeline');
+  // 계정 관리 권한이 필요한 Queue에서 지정한 실제 글만 재수집한다. 완료 이력은 덮어쓰지 않는다.
+  await env.DB.prepare("INSERT OR IGNORE INTO watched_posts (id,body,published_at,phase,discovered_at,context_json) VALUES (?,?,?,'link',?,?)")
+    .bind(post.id,post.text,post.date,Date.now(),JSON.stringify(post.context??[])).run();
+  await dispatchPending(env);
+  log({event:'watch-replay',found:true});
+}
+
 export async function scheduleWatch(env) {
   if(watchEnabled(env))await env.PROBE_JOBS.send({kind:'watch-poll'});
 }
 
 export async function processWatchJob(message,env) {
   const job=message.body;
-  if(!['watch-poll','watch-post'].includes(job?.kind))return false;
+  if(!['watch-poll','watch-post','watch-replay'].includes(job?.kind))return false;
   if(!watchEnabled(env)){message.ack();return true;}
   try{
     if(job.kind==='watch-poll')await poll(env,job);
+    else if(job.kind==='watch-replay')await replayPost(env,job.postId);
     else await processPost(env,job);
     message.ack();
   }catch{
