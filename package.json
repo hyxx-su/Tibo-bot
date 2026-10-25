@@ -1,0 +1,19 @@
+{
+  "name": "tibo-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Workers에서 Tibo 게시글 수집과 Gemini 분석 연결을 확인하는 Discord 봇",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "check": "wrangler deploy --dry-run --config wrangler.example.jsonc --outdir .build",
+    "test": "npm run check && node --test test/*.test.mjs",
+    "dev": "wrangler dev --config wrangler.local.jsonc",
+    "deploy": "wrangler deploy --config wrangler.local.jsonc",
+    "register:command": "node --env-file=.dev.vars scripts/register-command.mjs"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0",
+    "wrangler": "4.152.0"
+  }
+}

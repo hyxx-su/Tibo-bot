@@ -1,0 +1,34 @@
+{
+  "name": "tibo-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-30",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": [] },
+  "vars": {
+    "DISCORD_PUBLIC_KEY": "YOUR_64_HEX_DISCORD_PUBLIC_KEY",
+    "DISCORD_APPLICATION_ID": "YOUR_DISCORD_APPLICATION_ID",
+    "DISCORD_TEST_GUILD_ID": "YOUR_DISCORD_GUILD_ID",
+    "DISCORD_TEST_CHANNEL_ID": "YOUR_DISCORD_CHANNEL_ID",
+    "NITTER_BASE_URL": "https://x.noodl3.net"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tibo-bot-db",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "queues": {
+    "producers": [ { "binding": "PROBE_JOBS", "queue": "tibo-bot-jobs" } ],
+    "consumers": [
+      {
+        "queue": "tibo-bot-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 2
+      }
+    ]
+  }
+}
