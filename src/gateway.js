@@ -1,10 +1,11 @@
+import {readLimitedText} from './input.js';
 const log=event=>console.log(JSON.stringify({service:'tibo-bot',event}));
 const fatalCodes=new Set([4004,4010,4011,4012,4013,4014]);
 
 function gatewayUrl(value) {
   const url=new URL(value);
   // Discord가 제공한 주소라도 토큰을 보내는 WebSocket 목적지는 제한한다.
-  if(url.protocol!=='wss:'||!(url.hostname==='gateway.discord.gg'||url.hostname.endsWith('.discord.gg'))||url.username||url.password||url.port)throw new Error('Invalid gateway destination');
+  if(url.protocol!=='wss:'||!(/^gateway(?:-[a-z0-9-]+)?\.discord\.gg$/.test(url.hostname))||url.username||url.password||url.port)throw new Error('Invalid gateway destination');
   url.protocol='https:';url.search='?v=10&encoding=json';
   return url;
 }
@@ -37,12 +38,12 @@ export class DiscordGateway {
     this.status='connecting';
     let url=this.session?.url;
     if(!url){
-      const response=await fetch('https://discord.com/api/v10/gateway/bot',{headers:{Authorization:'Bot '+this.env.DISCORD_BOT_TOKEN},signal:AbortSignal.timeout(10000)});
+      const response=await fetch('https://discord.com/api/v10/gateway/bot',{redirect:'error',headers:{Authorization:'Bot '+this.env.DISCORD_BOT_TOKEN},signal:AbortSignal.timeout(10000)});
       if(!response.ok){
         if([401,403].includes(response.status)){this.control.blockedUntil=Date.now()+3600000;await this.ctx.storage.put('control',this.control);}
         await response.body?.cancel();throw new Error('Gateway discovery failed');
       }
-      const data=await response.json();url=data.url;
+      const data=JSON.parse(await readLimitedText(response,65536));url=data.url;
       if(data.session_start_limit?.remaining===0){
         this.control.nextIdentifyAt=Date.now()+Math.max(120000,data.session_start_limit.reset_after||86400000);
         await this.ctx.storage.put('control',this.control);this.status='rate-limited';return;
@@ -55,14 +56,14 @@ export class DiscordGateway {
     const upgradeTimeout=setTimeout(()=>controller.abort(),10000);
     let response;
     // 업그레이드 뒤까지 timeout이 살아 있으면 정상 WebSocket도 중단된다.
-    try{response=await fetch(gatewayUrl(url),{headers:{Upgrade:'websocket'},signal:controller.signal});}
+    try{response=await fetch(gatewayUrl(url),{redirect:'error',headers:{Upgrade:'websocket'},signal:controller.signal});}
     finally{clearTimeout(upgradeTimeout);}
     if(!response.webSocket){await response.body?.cancel();throw new Error('Gateway upgrade failed');}
     const ws=response.webSocket;this.ws=ws;this.acked=true;
     ws.accept();
     ws.addEventListener('message',event=>{
       if(ws!==this.ws)return;
-      try{this.receive(JSON.parse(event.data));}catch{this.disconnect();this.defer();log('gateway-protocol-failed');}
+      try{if(typeof event.data!=='string'||event.data.length>65536)throw new Error('Invalid gateway message');this.receive(JSON.parse(event.data));}catch{this.disconnect();this.defer();log('gateway-protocol-failed');}
     });
     ws.addEventListener('close',event=>{if(ws===this.ws)this.closed(event.code);});
     ws.addEventListener('error',()=>{if(ws===this.ws){this.disconnect();this.defer();}});

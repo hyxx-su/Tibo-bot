@@ -1,3 +1,4 @@
+import {readLimitedText} from './input.js';
 import {collectTimelinePage} from './collector.js';
 import {hasResetKeyword,analyzeReset,resetNotification} from './reset-analysis.js';
 import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis} from './watch-store.js';
@@ -37,16 +38,16 @@ export async function sendNotification(env,postId,content,kind) {
   const channel=env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID;
   if(!env.DISCORD_BOT_TOKEN||!/^\d+$/.test(channel??''))throw new Error('Notification configuration missing');
   const response=await fetch(`https://discord.com/api/v10/channels/${channel}/messages`,{
-    method:'POST',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
+    method:'POST',redirect:'error',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
     body:JSON.stringify({content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]},nonce:`${kind==='link'?'l':'r'}${postId}`,enforce_nonce:true}),
   });
   if(!response.ok){
     const error=new Error('Notification failed');error.code='discord_'+response.status;error.permanent=[400,401,403,404].includes(response.status);
-    if(response.status===429){const data=await response.json().catch(()=>({}));error.retryAfter=Math.min(86400,Math.ceil(Number(data.retry_after)||60));}
+    if(response.status===429){const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));error.retryAfter=Math.min(86400,Math.ceil(Number(data.retry_after)||60));}
     else await response.body?.cancel();
     throw error;
   }
-  const data=await response.json();
+  const data=JSON.parse(await readLimitedText(response,16384));
   if(typeof data.id!=='string')throw new Error('Notification ID missing');
   return data.id;
 }

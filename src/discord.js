@@ -1,3 +1,4 @@
+import {readLimitedText,discordPlainText} from './input.js';
 import {claimVerification} from './command-guard.js';
 import {gatewayStatus} from './gateway.js';
 import {collectLatestPost} from './collector.js';
@@ -20,8 +21,8 @@ export async function handleDiscord(request, env) {
   const signature=bytesFromHex(request.headers.get('X-Signature-Ed25519'),64);
   const timestamp=request.headers.get('X-Signature-Timestamp');
   if(!signature||!timestamp||!/^\d{1,12}$/.test(timestamp)||Math.abs(Date.now()/1000-Number(timestamp))>300)return new Response('Unauthorized',{status:401});
-  const raw=await request.text();
-  if(raw.length>65536)return new Response('Payload too large',{status:413});
+  let raw;
+  try{raw=await readLimitedText(request,65536);}catch(error){return new Response('Invalid request body',{status:error.code==='body_too_large'?413:400});}
   const publicKey=await crypto.subtle.importKey('raw',key,{name:'Ed25519'},false,['verify']);
   if(!await crypto.subtle.verify('Ed25519',publicKey,signature,new TextEncoder().encode(timestamp+raw)))return new Response('Unauthorized',{status:401});
   let interaction;
@@ -58,7 +59,7 @@ export async function handleDiscord(request, env) {
 async function updateOriginal(env, job, content) {
   // 같은 원본 메시지를 수정하므로 큐가 재전달돼도 후속 메시지가 늘어나지 않는다.
   const response=await fetch(`https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${encodeURIComponent(job.interactionToken)}/messages/@original`,{
-    method:'PATCH',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
+    method:'PATCH',redirect:'error',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
     body:JSON.stringify({content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]}}),
   });
   if(!response.ok&&response.status!==401&&response.status!==404)throw new Error('Discord response status '+response.status);
@@ -81,7 +82,7 @@ export async function processDiscordJob(message, env) {
     }else{
       const db=await env.DB.prepare('SELECT 1 AS ok').first();
       if(db.ok!==1)throw new Error('D1 verification failed');
-      const content=`검증 완료 · Cloudflare에서 실행\n수집: Tibo의 게시글/답글 1개\nGemini: ${job.analysis.category}\n${job.analysis.summary_ko}\nD1 연결·Queue 처리 확인\n원문: https://x.com/thsottiaux/status/${job.post.id}\n※ 현재 수집·분석 경로의 단발 검증이며 전체 글 수집이나 다음 초기화 시각을 보장하지 않습니다.`;
+      const content=`검증 완료 · Cloudflare에서 실행\n수집: Tibo의 게시글/답글 1개\nGemini: ${job.analysis.category}\n${discordPlainText(job.analysis.summary_ko)}\nD1 연결·Queue 처리 확인\n원문: https://x.com/thsottiaux/status/${job.post.id}\n※ 현재 수집·분석 경로의 단발 검증이며 전체 글 수집이나 다음 초기화 시각을 보장하지 않습니다.`;
       const delivered=await updateOriginal(env,job,content);
       console.log(JSON.stringify({probe:'tibo-bot',event:'discord-result',interactionId:job.interactionId,delivered,postId:job.post.id,category:job.analysis.category,usage:job.analysis.usage}));
     }
