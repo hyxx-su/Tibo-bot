@@ -1,6 +1,5 @@
 import {validId,canManage,channelMenu,configureGuild,seedLegacyGuild} from './guild-settings.js';
 import {readLimitedText,discordPlainText} from './input.js';
-import {claimVerification} from './command-guard.js';
 import {gatewayStatus} from './gateway.js';
 import {collectLatestPost} from './collector.js';
 import {analyzePost} from './gemini.js';
@@ -44,9 +43,8 @@ export async function handleDiscord(request, env) {
       return Response.json({type:5,data:{flags:64}});
     }catch{return privateReply('설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');}
   }
-  if(interaction.type!==2||!['검증','상태'].includes(interaction.data?.name))return privateReply('이 앱은 /알림설정, /검증, /상태 명령을 지원합니다.');
+  if(interaction.type!==2||interaction.data?.name!=='상태')return privateReply('이 앱은 /알림설정, /상태 명령을 지원합니다.');
   if(!validId(interaction.guild_id)||!interaction.member)return privateReply('서버에서 실행해 주세요.');
-  if(interaction.data.name==='검증'&&(interaction.guild_id!==env.DISCORD_TEST_GUILD_ID||interaction.channel_id!==env.DISCORD_TEST_CHANNEL_ID))return privateReply('설정된 서버와 채널에서 실행해 주세요.');
   if(interaction.data.name==='상태'){
     if(env.WATCH_ENABLED!=='true')return privateReply('자동 알림이 꺼져 있습니다.');
     try{
@@ -58,19 +56,7 @@ export async function handleDiscord(request, env) {
       return Response.json({type:4,data:statusMessage({state,counts,delivery:delivery.results,gateway,channelId:settings?.channel_id})});
     }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
   }
-  const permissions=interaction.member?.permissions;
-  if(typeof permissions!=='string'||!/^\d{1,30}$/.test(permissions)||(BigInt(permissions)&40n)===0n)return privateReply('검증은 서버 관리 권한이 있는 사용자만 실행할 수 있습니다.');
-  if(typeof interaction.token!=='string'||!interaction.token||interaction.token.length>2048||typeof interaction.id!=='string'||!/^\d{1,20}$/.test(interaction.id))return new Response('Invalid interaction',{status:400});
-  try{
-    const claim=await claimVerification(env,interaction.id);
-    if(claim==='duplicate')return Response.json({type:5,data:{flags:64}});
-    if(claim==='limited')return privateReply('검증은 전체 합계로 분당 1회·하루 20회까지 실행할 수 있습니다. 잠시 후 다시 실행해 주세요.');
-    // 분석을 기다리기 전에 작업을 큐에 보관하고 Discord에 지연 응답을 알린다.
-    await env.PROBE_JOBS.send({kind:'discord-collect',interactionToken:interaction.token,interactionId:interaction.id,expiresAt:Date.now()+14*60*1000});
-    return Response.json({type:5,data:{flags:64}});
-  }catch{
-    return privateReply('검증 작업을 큐에 넣지 못했습니다. 잠시 후 다시 실행해 주세요.');
-  }
+
 }
 
 async function updateOriginal(env, job, content) {
