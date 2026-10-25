@@ -53,7 +53,7 @@ try{
   });
   await test('새 글은 원문 링크만 발송하고 일반 글은 AI를 호출하지 않는다',async()=>{
     posts=[{id:'101',text:'새 합성 게시글'},...posts];await poll();await waitFor(async()=>(await row('101'))?.phase==='done');await waitPoll();
-    const sent=calls.filter(c=>c.kind==='discord');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/101');assert.deepEqual(sent[0].body.allowed_mentions,{parse:[]});assert.equal(sent[0].body.enforce_nonce,true);assert.equal(sent[0].body.flags,4);assert.equal(sent[0].authorization,'Bot synthetic-token');assert.equal(calls.filter(c=>c.kind==='ai').length,0);
+    const sent=calls.filter(c=>c.kind==='discord');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/101');assert.deepEqual(sent[0].body.allowed_mentions,{parse:[]});assert.equal(sent[0].body.enforce_nonce,true);assert.equal((sent[0].body.flags??0)&4,0);assert.equal(sent[0].authorization,'Bot synthetic-token');assert.equal(calls.filter(c=>c.kind==='ai').length,0);
   });
   await test('중복 Queue 메시지는 이미 보낸 링크를 다시 보내지 않는다',async()=>{
     await queue.send({kind:'watch-post',postId:'101',phase:'link'});await queue.send({kind:'watch-post',postId:'101',phase:'link'});
@@ -62,7 +62,7 @@ try{
   });
   await test('초기화 글은 한국시간 설명과 링크를 한 메시지로만 발송한다',async()=>{
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce.endsWith('102'));
-    assert.equal(sent.length,1);assert.equal(sent[0].body.nonce,'r102');assert.match(sent[0].body.content,/# 10월 27일 01:00/);assert.match(sent[0].body.content,/https:\/\/x.com\/thsottiaux\/status\/102$/);
+    assert.equal(sent.length,1);assert.equal(sent[0].body.nonce,'r102');assert.equal((sent[0].body.flags??0)&4,0);assert.match(sent[0].body.content,/# 10월 27일 01:00/);assert.match(sent[0].body.content,/https:\/\/x.com\/thsottiaux\/status\/102$/);
   });
   await test('휴식 의미의 reset에는 링크만 보내고 초기화 공지는 보내지 않는다',async()=>{
     posts=[{id:'103',text:'Day 20. Rest and reset.'},...posts];await poll();await waitFor(async()=>(await row('103'))?.phase==='done');await waitPoll();
