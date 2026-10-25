@@ -25,7 +25,7 @@ export async function analyzeReset(env,post) {
   // 시각은 AI가 만든 날짜가 아니라, 원문에 실제 존재하는 시간 표현에서만 계산한다.
   const expression=result.time_expression.trim();
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
-  const time=timeSource&&!['completed','in_progress'].includes(result.status)?parseResetTime(expression,publishedTimestamp(timeSource)):null;
+  const time=timeSource&&typeof timeSource.date==='string'&&!['completed','in_progress'].includes(result.status)?parseResetTime(expression,publishedTimestamp(timeSource)):null;
   if(time&&/\b(by|before)\b|까지/i.test(expression))time.relation='deadline';
   return {...result,summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
 }
