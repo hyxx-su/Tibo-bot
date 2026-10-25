@@ -89,3 +89,8 @@ for(const date of ['Oct 25, 2026 · 8:00 AM UTC','Oct 25, 2026 · 9:00 AM UTC','
 await test('기존 예상 시각이 없으면 추측하지 않는다',()=>{
   const message=resetNotification({id:'200',date:'Oct 25, 2026 · 6:06 AM UTC'},{status:'completed'});assert.match(message,/기존 예상 시각 미확인/);assert.doesNotMatch(message,/앞서 완료/);
 });
+
+await test('PST 저녁의 tomorrow before 10am은 UTC 날짜가 아닌 PST 다음 날을 기준으로 변환한다',()=>{
+  const time=parseResetTime('tomorrow before 10am PST',Date.parse('2026-10-23T04:48:00Z'));
+  assert.equal(formatKoreanTime(time.timestamp),'2026-10-24 03:00 (한국시간, KST)');
+});
