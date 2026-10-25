@@ -14,8 +14,16 @@ export async function recordPage(db,posts,now) {
   const fresh=ordered.filter(post=>BigInt(post.id)>BigInt(state.baseline_id));
   let added=0;
   if(fresh.length){
-    const results=await db.batch(fresh.map(post=>db.prepare("INSERT OR IGNORE INTO watched_posts (id,body,published_at,phase,discovered_at,context_json) VALUES (?,?,?,'link',?,?)").bind(post.id,post.text,post.date,now,JSON.stringify(post.context??[]))));
-    added=results.reduce((sum,result)=>sum+result.meta.changes,0);
+    // 최고 ID보다 오래된 글도 미러에 늦게 나타날 수 있어 실제 저장 ID로 확인한다.
+    // JSON 배열을 한 번 바인딩해 한 페이지가 D1의 매개변수 한도를 넘지 않게 한다.
+    const {results:stored}=await db.prepare('SELECT id FROM watched_posts WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(fresh.map(post=>post.id))).all();
+    const seen=new Set(stored.map(post=>post.id));
+    const unseen=fresh.filter(post=>{if(seen.has(post.id))return false;seen.add(post.id);return true;});
+    if(unseen.length){
+      // 조회 이후 다른 작업이 같은 ID를 저장해도 기존 처리 이력을 보존한다.
+      const results=await db.batch(unseen.map(post=>db.prepare("INSERT OR IGNORE INTO watched_posts (id,body,published_at,phase,discovered_at,context_json) VALUES (?,?,?,'link',?,?)").bind(post.id,post.text,post.date,now,JSON.stringify(post.context??[]))));
+      added=results.reduce((sum,result)=>sum+result.meta.changes,0);
+    }
   }
   if(BigInt(newest)>BigInt(state.high_water_id))await db.prepare('UPDATE watch_state SET high_water_id=? WHERE id=1 AND high_water_id=?').bind(newest,state.high_water_id).run();
   return {baseline:false,added,cutoff:state.high_water_id};
@@ -55,12 +63,14 @@ export async function deferAnalysis(db,row,token,now) {
   await db.prepare('UPDATE watched_posts SET next_attempt=?,lease_until=0,claim_token=NULL,last_error=? WHERE id=? AND claim_token=?').bind(tomorrow,'daily_analysis_limit',row.id,token).run();
 }
 
-export async function readWatchStatus(db) {
+export async function readWatchStatus(db,guildId) {
   const results=await db.batch([
     db.prepare('SELECT baseline_id,last_success,last_error,started_at FROM watch_state WHERE id=1'),
-    db.prepare('SELECT phase,COUNT(*) AS count FROM watched_posts GROUP BY phase'),
+    // 상태 화면에는 건수가 필요 없으므로 실패 인덱스에서 존재 여부만 확인한다.
+    db.prepare(`SELECT EXISTS(SELECT 1 FROM watched_posts WHERE phase='failed')
+      OR EXISTS(SELECT 1 FROM post_deliveries WHERE phase='failed' AND guild_id=?) AS has_failures`).bind(guildId),
   ]);
-  return {state:results[0].results[0],counts:results[1].results};
+  return {state:results[0].results[0],hasFailures:Boolean(results[1].results[0].has_failures)};
 }
 
 

@@ -50,10 +50,9 @@ export async function handleDiscord(request, env) {
     try{
       await seedLegacyGuild(env);
       const settings=await env.DB.prepare('SELECT channel_id FROM guild_settings WHERE guild_id=? AND active=1').bind(interaction.guild_id).first();
-      const {state,counts}=await readWatchStatus(env.DB);
-      const delivery=await env.DB.prepare('SELECT phase,COUNT(*) AS count FROM post_deliveries WHERE guild_id=? GROUP BY phase').bind(interaction.guild_id).all();
+      const {state,hasFailures}=await readWatchStatus(env.DB,interaction.guild_id);
       const gateway=await gatewayStatus(env);
-      return Response.json({type:4,data:statusMessage({state,counts,delivery:delivery.results,gateway,channelId:settings?.channel_id})});
+      return Response.json({type:4,data:statusMessage({state,hasFailures,gateway,channelId:settings?.channel_id})});
     }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
   }
 

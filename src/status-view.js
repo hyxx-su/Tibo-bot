@@ -1,9 +1,8 @@
 import {formatKoreanTime} from './reset-time.js';
 
 const colors={healthy:0x57F287,warning:0xFEE75C,error:0xED4245};
-const count=(rows,phase)=>rows.find(row=>row.phase===phase)?.count??0;
 
-export function statusMessage({state,counts,delivery,gateway,channelId,now=Date.now()}) {
+export function statusMessage({state,hasFailures,gateway,channelId,now=Date.now()}) {
   const hasSuccess=Number.isFinite(state?.last_success)&&state.last_success>0;
   // 내부 처리 정보는 숨겨도 지연·실패를 정상 상태로 안내하지 않도록 판정에 사용한다.
   const stale=hasSuccess&&(now-state.last_success>180000||state.last_success>now+60000);
@@ -11,7 +10,7 @@ export function statusMessage({state,counts,delivery,gateway,channelId,now=Date.
   let severity='healthy',title='✅ 알림 정상 작동 중',description;
   if(state?.last_error){
     severity='error';title='🔴 새 글을 확인하지 못했어요';description='잠시 후 다시 확인해 주세요. 문제가 계속되면 봇 관리자에게 문의해 주세요.';
-  }else if(count(counts,'failed')>0||count(delivery,'failed')>0){
+  }else if(hasFailures){
     severity='error';title='🔴 일부 알림을 보내지 못했어요';description='알림 채널의 봇 권한을 확인해 주세요. 문제가 계속되면 봇 관리자에게 문의해 주세요.';
   }else if(!configured){
     severity='warning';title='🟡 알림 채널을 선택해 주세요';description='`/알림설정`으로 메시지를 받을 채널을 선택할 수 있어요.';
