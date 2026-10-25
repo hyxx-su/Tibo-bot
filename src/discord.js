@@ -59,7 +59,7 @@ export async function handleDiscord(request, env) {
 async function updateOriginal(env, job, content) {
   // 같은 원본 메시지를 수정하므로 큐가 재전달돼도 후속 메시지가 늘어나지 않는다.
   const response=await fetch(`https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${encodeURIComponent(job.interactionToken)}/messages/@original`,{
-    method:'PATCH',redirect:'error',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
+    method:'PATCH',redirect:'manual',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
     body:JSON.stringify({content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]}}),
   });
   if(!response.ok&&response.status!==401&&response.status!==404)throw new Error('Discord response status '+response.status);

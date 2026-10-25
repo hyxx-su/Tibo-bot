@@ -41,7 +41,7 @@ export async function collectTimelinePage(baseUrl='https://x.noodl3.net',cursor=
   if(url.protocol!=='https:'||url.hostname!=='x.noodl3.net'||url.username||url.password||url.port)throw new Error('The source must use HTTPS');
   if(cursor)url.searchParams.set('cursor',cursor);
   const response=await fetch(url,{
-    redirect:'error',headers:{'User-Agent':'TiboBot/0.1 (+https://github.com/hyxx-su/Tibo-bot)'},
+    redirect:'manual',headers:{'User-Agent':'TiboBot/0.1 (+https://github.com/hyxx-su/Tibo-bot)'},
     signal:AbortSignal.timeout(20000),
   });
   if(!response.ok){await response.body?.cancel();throw new Error('Post source unavailable: '+response.status);}

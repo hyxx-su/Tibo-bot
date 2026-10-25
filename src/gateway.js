@@ -38,7 +38,7 @@ export class DiscordGateway {
     this.status='connecting';
     let url=this.session?.url;
     if(!url){
-      const response=await fetch('https://discord.com/api/v10/gateway/bot',{redirect:'error',headers:{Authorization:'Bot '+this.env.DISCORD_BOT_TOKEN},signal:AbortSignal.timeout(10000)});
+      const response=await fetch('https://discord.com/api/v10/gateway/bot',{redirect:'manual',headers:{Authorization:'Bot '+this.env.DISCORD_BOT_TOKEN},signal:AbortSignal.timeout(10000)});
       if(!response.ok){
         if([401,403].includes(response.status)){this.control.blockedUntil=Date.now()+3600000;await this.ctx.storage.put('control',this.control);}
         await response.body?.cancel();throw new Error('Gateway discovery failed');
@@ -56,7 +56,7 @@ export class DiscordGateway {
     const upgradeTimeout=setTimeout(()=>controller.abort(),10000);
     let response;
     // 업그레이드 뒤까지 timeout이 살아 있으면 정상 WebSocket도 중단된다.
-    try{response=await fetch(gatewayUrl(url),{redirect:'error',headers:{Upgrade:'websocket'},signal:controller.signal});}
+    try{response=await fetch(gatewayUrl(url),{redirect:'manual',headers:{Upgrade:'websocket'},signal:controller.signal});}
     finally{clearTimeout(upgradeTimeout);}
     if(!response.webSocket){await response.body?.cancel();throw new Error('Gateway upgrade failed');}
     const ws=response.webSocket;this.ws=ws;this.acked=true;

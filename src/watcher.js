@@ -38,7 +38,7 @@ export async function sendNotification(env,postId,content,kind) {
   const channel=env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID;
   if(!env.DISCORD_BOT_TOKEN||!/^\d+$/.test(channel??''))throw new Error('Notification configuration missing');
   const response=await fetch(`https://discord.com/api/v10/channels/${channel}/messages`,{
-    method:'POST',redirect:'error',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
+    method:'POST',redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
     body:JSON.stringify({content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]},nonce:`${kind==='link'?'l':'r'}${postId}`,enforce_nonce:true}),
   });
   if(!response.ok){
