@@ -34,6 +34,12 @@ test('Gateway 연결·인증·복구 경로',async t=>{
         await gateway.ensure();assert.equal(count,2);
       }finally{gateway.disconnect();}
     });
+    await t.test('업그레이드 완료 뒤 제한 시간이 지나도 연결을 취소하지 않는다',async t=>{
+      t.mock.timers.enable({apis:['setTimeout']});const {gateway}=await fixture();let signal;const socket=new Socket();let count=0;
+      globalThis.fetch=async(url,options)=>{if(++count===1)return discovery();signal=options.signal;return {webSocket:socket};};
+      try{await gateway.ensure();socket.message(ready);t.mock.timers.tick(15000);assert.equal(signal.aborted,false);assert.equal(gateway.ws,socket);}
+      finally{gateway.disconnect();t.mock.timers.reset();}
+    });
     await t.test('재연결은 기존 세션과 최신 sequence로 재개한다',async()=>{
       const {gateway}=await fixture();const old=new Socket();gateway.ws=old;gateway.receive(ready);gateway.receive({op:0,s:43,t:'OTHER',d:{}});gateway.receive({op:7});
       assert.equal(old.closed[0],4000);gateway.retryAt=0;const socket=new Socket();let destination;
