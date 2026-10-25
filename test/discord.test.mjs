@@ -52,6 +52,7 @@ try{
   await check('valid signature with invalid JSON is refused',async()=>assert.equal((await signed('{broken')).status,400));
   await check('null interaction is refused',async()=>assert.equal((await signed('null')).status,400));
   await check('oversized payload is refused',async()=>assert.equal((await signed(' '.repeat(65537))).status,413));
+  await check('문자 수가 작아도 UTF-8 바이트 한도를 넘으면 거부한다',async()=>assert.equal((await signed('한'.repeat(22000))).status,413));
   await check('unsupported command receives private explanation',async()=>{const r=await(await signed(JSON.stringify({...base,data:{name:'unknown'}}))).json();assert.equal(r.type,4);assert.equal(r.data.flags,64);});
   for(const field of ['application_id','guild_id','channel_id'])await check(`wrong ${field} cannot enqueue analysis`,async()=>{
     const r=await(await signed(JSON.stringify({...base,[field]:'different'}))).json();assert.equal(r.type,4);assert.equal(r.data.flags,64);assert.equal(calls.length,0);

@@ -66,6 +66,9 @@ test('Gateway 연결·인증·복구 경로',async t=>{
     await t.test('Discord 이외의 WebSocket 주소에는 토큰을 전송하지 않는다',async()=>{
       const {gateway}=await fixture();let count=0;globalThis.fetch=async()=>{count++;return Response.json({url:'wss://attacker.invalid'});};await gateway.ensure();assert.equal(count,1);assert.equal(gateway.ws,null);
     });
+    await t.test('Discord 하위 도메인이라도 Gateway가 아닌 주소는 거부한다',async()=>{
+      const {gateway}=await fixture();let count=0;globalThis.fetch=async()=>{count++;return Response.json({url:'wss://uploads.discord.gg'});};await gateway.ensure();assert.equal(count,1);assert.equal(gateway.ws,null);
+    });
     await t.test('재시작 뒤에도 저장된 인증 간격을 지킨다',async()=>{
       const {gateway}=await fixture({nextIdentifyAt:Date.now()+120000,blockedUntil:0});globalThis.fetch=async()=>{throw Error('Must not connect');};await gateway.ensure();assert.equal(gateway.ws,null);
     });

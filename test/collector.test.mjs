@@ -4,7 +4,8 @@ import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
 import {timelineHtml,latestId} from './fixtures/timeline.mjs';
 
-const implementation=(await readFile(new URL('../src/collector.js',import.meta.url),'utf8')).replaceAll('export async function','async function');
+const inputImplementation=(await readFile(new URL('../src/input.js',import.meta.url),'utf8')).replaceAll('export ','');
+const implementation=inputImplementation+(await readFile(new URL('../src/collector.js',import.meta.url),'utf8')).replace("import {readLimitedText} from './input.js';",'').replaceAll('export async function','async function');
 let scenario='normal';
 let outboundCalls=0;
 const mf=new Miniflare({
@@ -16,6 +17,8 @@ const mf=new Miniflare({
   }catch(error){return Response.json({error:error.message},{status:503});}}};`,
   outboundService:async()=>{
     outboundCalls++;
+    if(scenario==='oversized')return new Response('x'.repeat(2*1024*1024+1));
+    if(scenario==='redirect')return new Response(null,{status:302,headers:{Location:'https://attacker.invalid/'}});
     if(scenario==='403'||scenario==='429')return new Response('unavailable',{status:Number(scenario)});
     if(scenario==='failure')throw new Error('synthetic connection failure');
     if(scenario==='empty')return new Response('<html>maintenance</html>');
@@ -58,6 +61,12 @@ try{
   });
   await test('HTTPS가 아닌 설정은 외부 요청 전에 거부한다',async()=>{
     const before=outboundCalls;assert.equal((await mf.dispatchFetch('http://test/?base=http://fixture.test')).status,503);assert.equal(outboundCalls,before);
+  });
+  for(const base of ['https://127.0.0.1','https://attacker.invalid','https://user:secret@x.noodl3.net'])await test('허용하지 않은 수집 주소는 요청 전에 거부한다: '+new URL(base).hostname,async()=>{
+    const before=outboundCalls;assert.equal((await mf.dispatchFetch('http://test/?base='+encodeURIComponent(base))).status,503);assert.equal(outboundCalls,before);
+  });
+  for(const kind of ['oversized','redirect'])await test('외부 '+kind+' 응답을 거부한다',async()=>{
+    scenario=kind;assert.equal((await mf.dispatchFetch('http://test/')).status,503);
   });
   await test('수집 연결 실패는 처리된 오류로 반환한다',async()=>{
     scenario='failure';assert.equal((await mf.dispatchFetch('http://test/')).status,503);
