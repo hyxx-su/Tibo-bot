@@ -35,9 +35,9 @@ https://x.com/thsottiaux/status/POST_ID
 | 명령 | 동작 |
 | --- | --- |
 | `/상태` | 마지막 수집 성공 시각, 기준점, 대기·완료·실패 건수를 비공개로 표시 |
-| `/검증` | 표본 1개 수집 → Gemini → D1·Queue → 비공개 응답 경로 확인 |
+| `/검증` | 서버 관리 권한 필요. 표본 1개 수집 → Gemini → D1·Queue → 비공개 응답 확인. 전체 합계로 분당 1회·UTC 하루 20회 |
 
-명령은 설정한 테스트 서버·채널에서만 실행됩니다. 자동 알림은 `DISCORD_NOTIFY_CHANNEL_ID`로 지정한 채널로 전송합니다.
+명령은 설정한 테스트 서버·채널에서만 실행됩니다. `/상태`는 본인에게만 온라인 연결과 수집 상태를 표시합니다. 자동 알림은 `DISCORD_NOTIFY_CHANNEL_ID`로 지정한 채널로 전송합니다.
 
 ## 구조
 
@@ -46,6 +46,8 @@ https://x.com/thsottiaux/status/POST_ID
 | `src/index.js` | HTTP·Cron·Queue 진입점 |
 | `src/discord.js` | Ed25519 서명 확인과 명령 응답 |
 | `src/collector.js` | 대상 작성자 게시글·답글과 다음 페이지 추출 |
+| `src/command-guard.js` | 검증 명령 재사용·호출량 제한 |
+| `src/input.js` | 외부 응답 바이트 제한과 AI 요약 서식 보호 |
 | `src/gateway.js` | 온라인 상태, Heartbeat 확인, 세션 재개·재접속 제한 |
 | `src/watcher.js` | 예약 수집, 링크 발송, 분석·공지 진행 |
 | `src/watch-store.js` | 기준점·처리 이력, 작업 점유와 재시도, 일일 분석 상한 |
@@ -141,8 +143,20 @@ npm test
 
 ## 온라인 표시 설정
 
-배포 설정의 `durable_objects`와 `v1-gateway` SQLite 마이그레이션을 유지하고 `GATEWAY_ENABLED`를 `"true"`로 설정합니다. 기존 `DISCORD_BOT_TOKEN`을 사용하며 추가 privileged intent는 필요하지 않습니다. 배포 후 다음 Cron 실행에서 연결을 시작합니다. `/health`의 `gateway`에는 연결 상태, 연결 시각, 마지막 Heartbeat ACK 시각만 표시하며 토큰·세션 ID는 공개하지 않습니다.
+배포 설정의 `durable_objects`와 SQLite 마이그레이션 이력을 유지하고 `GATEWAY_ENABLED`를 `"true"`로 설정합니다. 기존 `DISCORD_BOT_TOKEN`을 사용하며 추가 privileged intent는 필요하지 않습니다. 배포 후 다음 Cron 실행에서 연결을 시작합니다. 공개 `/health`는 최소 서비스 상태만 반환하며 내부 객체를 호출하지 않습니다. 실제 온라인 연결 상태는 Discord의 비공개 `/상태`로 확인합니다.
 
 연결 객체 이름은 고정되어 한 개만 사용합니다. Heartbeat ACK 누락, 연결 종료, Discord의 재접속 요청을 처리합니다. 살아 있는 세션은 재개하고, 새 인증은 재시작을 포함해 최소 2분 간격으로 제한합니다. 복구 대기는 최대 15분이며 치명적인 인증·설정 오류는 한 시간 동안 재시도를 제한합니다. `GATEWAY_ENABLED="false"`로 재배포하면 다음 Cron에서 연결을 종료합니다. 배포 설정에서 Durable Object 마이그레이션 이력을 임의로 삭제하지 마세요.
 
 [Cloudflare 공식 요금표](https://developers.cloudflare.com/durable-objects/platform/pricing/) 기준 Workers Free의 Durable Objects 실행 시간은 하루 13,000 GB-s입니다. 외부 WebSocket은 hibernation 대상이 아니므로 연결 중 실행 시간을 소비합니다. 객체 하나의 24시간 연결은 대략 11,000 GB-s로 무료 한도 안에 들어가는 계산이지만 계정의 다른 Durable Objects 사용량도 합산됩니다. 무료 한도 초과 시 해당 작업은 오류로 중단되며, 장애나 배포 중 일시적인 오프라인 표시는 발생할 수 있습니다.
+
+
+## 보안 운영
+
+- Discord 요청은 Ed25519 서명과 ±5분 유효 시간을 확인합니다. `/검증`은 서버 관리·관리자 권한을 확인하고, 별도 SQLite Durable Object가 중복 요청과 호출 상한을 저장합니다. 호출 제한 저장소 오류 시 새 분석을 실행하지 않습니다.
+- `/검증`의 일일 제한은 UTC 자정, 한국시간 오전 9시에 초기화합니다. 자동 게시글 분석의 기존 하루 100회 제한과 별개입니다.
+- 수집원은 현재 확인한 `https://x.noodl3.net`만 허용합니다. 다른 미러를 쓰려면 수집기의 허용 목록도 검토해야 합니다. 외부 HTTP 리다이렉트는 자동 추적하지 않습니다.
+- Discord 입력은 64 KiB, 미러 HTML은 2 MiB, Gemini 응답은 64 KiB로 제한합니다. AI 요약의 외부 링크를 제거하고 Discord 서식을 이스케이프하며, 멘션은 비활성화합니다.
+- `sharp`와 `undici`의 보안 패치는 `overrides`로 고정합니다. 개발 도구에 필요한 패치이며 Worker 런타임에 해당 Node 패키지를 포함하는 것은 아닙니다. 의존성 변경 후 `npm test`와 `npm audit`를 실행합니다.
+- 키·봇 토큰·개인별 배포 설정은 Git에 넣지 않습니다. 채팅이나 로그에 노출된 자격 증명은 발급처에서 폐기·재발급하고 Cloudflare secret도 교체해야 합니다.
+
+자세한 점검 범위와 한계는 [보안 점검 기록](docs/security-review.md)을 확인하세요.
