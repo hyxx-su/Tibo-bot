@@ -27,7 +27,7 @@ test('Gateway 연결·인증·복구 경로',async t=>{
       const {gateway,writes}=await fixture();let count=0;const socket=new Socket();
       globalThis.fetch=async()=>{count++;return count===1?discovery():{webSocket:socket};};
       try{
-        await Promise.all([gateway.ensure(),gateway.ensure()]);assert.equal(count,2);assert.equal(writes.length,1);
+        await Promise.all([gateway.ensure(),gateway.ensure()]);assert.equal(count,2);assert.ok(writes.some(state=>state.nextIdentifyAt>Date.now()));
         socket.message(hello);assert.equal(socket.sent[0].op,2);assert.equal(socket.sent[0].d.intents,0);assert.equal(socket.sent[0].d.presence.status,'online');
         socket.message(ready);socket.message({op:1});assert.deepEqual(socket.sent.at(-1),{op:1,d:42});socket.message({op:11});
         const state=await(await gateway.fetch(new Request('https://test/status'))).json();assert.equal(state.status,'online');assert.ok(state.lastHeartbeatAck);assert.ok(!JSON.stringify(state).includes('synthetic'));
@@ -71,6 +71,17 @@ test('Gateway 연결·인증·복구 경로',async t=>{
     });
     await t.test('재시작 뒤에도 저장된 인증 간격을 지킨다',async()=>{
       const {gateway}=await fixture({nextIdentifyAt:Date.now()+120000,blockedUntil:0});globalThis.fetch=async()=>{throw Error('Must not connect');};await gateway.ensure();assert.equal(gateway.ws,null);
+    });
+    await t.test('토큰이 바뀌면 이전 인증 실패 대기를 해제하되 최소 인증 간격은 유지한다',async()=>{
+      const nextIdentifyAt=Date.now()+120000;
+      const {gateway,writes}=await fixture({nextIdentifyAt,blockedUntil:Date.now()+3600000,tokenFingerprint:'previous-token-fingerprint'});
+      assert.equal(gateway.control.blockedUntil,0);assert.equal(gateway.control.nextIdentifyAt,nextIdentifyAt);assert.notEqual(gateway.control.tokenFingerprint,'previous-token-fingerprint');assert.ok(!JSON.stringify(writes).includes('synthetic-token'));
+      globalThis.fetch=async()=>{throw Error('Must not connect before cooldown');};await gateway.ensure();assert.equal(gateway.ws,null);
+    });
+    await t.test('동일 토큰으로 재시작하면 기존 인증 실패 대기를 우회하지 않는다',async()=>{
+      const first=await fixture();const blockedUntil=Date.now()+3600000;
+      const {gateway}=await fixture({...first.gateway.control,blockedUntil});assert.equal(gateway.control.blockedUntil,blockedUntil);
+      globalThis.fetch=async()=>{throw Error('Must not connect while blocked');};await gateway.ensure();assert.equal(gateway.ws,null);
     });
     await t.test('연결 비활성화는 정상 종료하고 온라인 세션을 제거한다',async()=>{
       const {gateway,env}=await fixture();const socket=new Socket();gateway.ws=socket;gateway.receive(ready);env.GATEWAY_ENABLED='false';await gateway.ensure();assert.equal(socket.closed[0],1000);assert.equal(gateway.status,'disabled');assert.equal(gateway.session,null);
