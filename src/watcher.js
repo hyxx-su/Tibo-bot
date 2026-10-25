@@ -1,6 +1,6 @@
 import {readLimitedText} from './input.js';
 import {collectTimelinePage} from './collector.js';
-import {hasResetKeyword,analyzeReset,resetNotification} from './reset-analysis.js';
+import {analyzeReset,resetNotification} from './reset-analysis.js';
 import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis,resolveQuoteContext} from './watch-store.js';
 
 const log=data=>console.log(JSON.stringify({service:'tibo-bot',...data}));
@@ -64,7 +64,8 @@ async function processPost(env,job) {
   try{
     const post={id:row.id,text:row.body,date:row.published_at,context:JSON.parse(row.context_json??'[]')};
     if(row.phase==='link'){
-      const needsAnalysis=!row.analysis_json&&(hasResetKeyword([row.body,...post.context.map(p=>p.text)].join('\n'))||post.context.some(source=>source.relation==='quote'));
+      // 짧은 완료 공지와 오탈자도 누락하지 않도록 모든 미분석 새 글을 판별한다.
+      const needsAnalysis=!row.analysis_json;
       if(needsAnalysis){
         next='analyze';await advancePost(env.DB,row,token,next);
       }else{
