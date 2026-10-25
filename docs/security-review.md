@@ -46,3 +46,8 @@
 - [Discord 명령 기본 권한](https://docs.discord.com/developers/interactions/application-commands)
 - [undici 보안 공지와 패치 버전](https://github.com/nodejs/undici/security/advisories/GHSA-xjj6-f33q-929c)
 - [sharp 0.35.5 릴리스](https://github.com/lovell/sharp/releases/tag/v0.35.5)
+
+
+## 후속 운영 키 교체
+
+운영 중인 Gemini API 키와 Discord 봇 토큰은 후속 작업에서 교체를 완료했습니다. 사용자가 기존 Gemini 키를 삭제한 것을 확인했고, 이전 Discord 토큰은 HTTP 401로 무효화됐음을 확인했습니다. 새 값의 Cloudflare 등록 이후 실제 분석 응답·메시지 전송·온라인 복귀를 검증했습니다. 위 초기 점검의 ‘교체 미확인’ 기록 이후 완료된 조치이며, 미사용 서비스의 다른 키는 이 교체 범위에 포함하지 않습니다. 세부 결과는 [검증 기록](verification.md#인증정보-교체-완료-검증)을 참고하세요.
