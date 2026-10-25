@@ -1,0 +1,84 @@
+import {Miniflare,Log,LogLevel} from 'miniflare';
+import test from 'node:test';
+import {timelineHtml,latestId} from './fixtures/timeline.mjs';
+import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {webcrypto} from 'node:crypto';
+import {processDiscordJob} from '../src/discord.js';
+
+const check=(name,fn)=>test(name,fn);
+const keys=await webcrypto.subtle.generateKey('Ed25519',true,['sign','verify']);
+const publicKey=Buffer.from(await webcrypto.subtle.exportKey('raw',keys.publicKey)).toString('hex');
+const pages={first:timelineHtml()};
+const calls=[];
+const mf=new Miniflare({
+  modules:true,script:await readFile(new URL('../.build/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
+  bindings:{DISCORD_PUBLIC_KEY:publicKey,DISCORD_APPLICATION_ID:'1',DISCORD_TEST_GUILD_ID:'2',DISCORD_TEST_CHANNEL_ID:'3',GEMINI_API_KEY:'synthetic-test-key'},
+  d1Databases:['DB'],queueProducers:{PROBE_JOBS:'discord-fixture'},queueConsumers:{'discord-fixture':{maxBatchSize:1,maxBatchTimeout:0,maxRetries:2,retryDelay:0}},
+  outboundService:async request=>{
+    const url=new URL(request.url);
+    if(url.hostname==='x.noodl3.net'){calls.push({kind:'source'});return new Response(pages.first);}
+    if(url.hostname==='generativelanguage.googleapis.com'){
+      const body=await request.json();calls.push({kind:'gemini',hasKey:request.headers.get('x-goog-api-key')==='synthetic-test-key',input:JSON.parse(body.contents[0].parts[0].text)});
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({category:'unrelated',summary_ko:'합성 테스트 데이터에 관한 요약입니다.'})}]}}],usageMetadata:{totalTokenCount:100}});
+    }
+    if(url.hostname==='discord.com'){
+      calls.push({kind:'discord',method:request.method,path:url.pathname,body:await request.json()});return Response.json({id:'fixture-message'});
+    }
+    throw new Error('Unexpected outbound fixture destination');
+  },
+});
+const base={type:2,application_id:'1',guild_id:'2',channel_id:'3',id:'fixture-interaction',token:'synthetic-interaction-token',data:{name:'검증'}};
+async function signed(raw,overrides={}){
+  const timestamp=String(Math.floor(Date.now()/1000));
+  const signature=Buffer.from(await webcrypto.subtle.sign('Ed25519',keys.privateKey,new TextEncoder().encode(timestamp+raw))).toString('hex');
+  return mf.dispatchFetch('http://probe/discord',{method:'POST',headers:{'X-Signature-Ed25519':signature,'X-Signature-Timestamp':timestamp,...overrides},body:raw});
+}
+async function waitFor(fn){const deadline=Date.now()+5000;while(Date.now()<deadline){if(fn())return;await new Promise(resolve=>setTimeout(resolve,25));}throw new Error('Fixture pipeline timed out');}
+try{
+  await check('GET is refused',async()=>assert.equal((await mf.dispatchFetch('http://probe/discord')).status,405));
+  await check('missing signature is refused',async()=>assert.equal((await mf.dispatchFetch('http://probe/discord',{method:'POST',body:'{}'})).status,401));
+  await check('malformed hex signature is refused',async()=>assert.equal((await signed('{}',{'X-Signature-Ed25519':'not-hex'})).status,401));
+  await check('forged signature is refused',async()=>assert.equal((await signed('{}',{'X-Signature-Ed25519':'00'.repeat(64)})).status,401));
+  await check('malformed timestamp is refused',async()=>assert.equal((await signed('{}',{'X-Signature-Timestamp':'invalid'})).status,401));
+  await check('valid signed Unicode and exact whitespace are accepted',async()=>{
+    const r=await signed('{ "type": 1, "fixture": "한글 😀" }');assert.equal(r.status,200);assert.deepEqual(await r.json(),{type:1});
+  });
+  await check('modified signed body is refused',async()=>{
+    const timestamp=String(Math.floor(Date.now()/1000));const sig=Buffer.from(await webcrypto.subtle.sign('Ed25519',keys.privateKey,new TextEncoder().encode(timestamp+'{"type":1}'))).toString('hex');
+    const r=await mf.dispatchFetch('http://probe/discord',{method:'POST',headers:{'X-Signature-Ed25519':sig,'X-Signature-Timestamp':timestamp},body:'{"type":2}'});assert.equal(r.status,401);
+  });
+  await check('valid signature with invalid JSON is refused',async()=>assert.equal((await signed('{broken')).status,400));
+  await check('null interaction is refused',async()=>assert.equal((await signed('null')).status,400));
+  await check('oversized payload is refused',async()=>assert.equal((await signed(' '.repeat(65537))).status,413));
+  await check('unsupported command receives private explanation',async()=>{const r=await(await signed(JSON.stringify({...base,data:{name:'unknown'}}))).json();assert.equal(r.type,4);assert.equal(r.data.flags,64);});
+  for(const field of ['application_id','guild_id','channel_id'])await check(`wrong ${field} cannot enqueue analysis`,async()=>{
+    const r=await(await signed(JSON.stringify({...base,[field]:'different'}))).json();assert.equal(r.type,4);assert.equal(r.data.flags,64);assert.equal(calls.length,0);
+  });
+  await check('missing continuation token is refused',async()=>assert.equal((await signed(JSON.stringify({...base,token:''}))).status,400));
+  await check('valid command receives deferred private response',async()=>{const r=await(await signed(JSON.stringify(base))).json();assert.equal(r.type,5);assert.equal(r.data.flags,64);});
+  await check('actual local Queue pipeline collects, analyzes and replies',async()=>{
+    await waitFor(()=>calls.some(c=>c.kind==='discord'));assert.equal(calls.filter(c=>c.kind==='source').length,1);assert.equal(calls.filter(c=>c.kind==='gemini').length,1);
+    const ai=calls.find(c=>c.kind==='gemini');assert.equal(ai.hasKey,true);assert.equal(ai.input.id,latestId);
+    const reply=calls.find(c=>c.kind==='discord');assert.equal(reply.method,'PATCH');assert.ok(reply.path.endsWith('/messages/@original'));assert.deepEqual(reply.body.allowed_mentions,{parse:[]});assert.match(reply.body.content,/D1 연결/);
+  });
+  await check('duplicate result delivery updates the same message',async()=>{
+    const queue=await mf.getQueueProducer('PROBE_JOBS');const job={kind:'discord-reply',interactionToken:base.token,interactionId:base.id,expiresAt:Date.now()+60000,post:{id:latestId},analysis:{category:'unrelated',summary_ko:'중복 처리 시험'}};
+    await queue.send(job);await queue.send(job);await waitFor(()=>calls.filter(c=>c.kind==='discord').length===3);
+    const replies=calls.filter(c=>c.kind==='discord');assert.equal(new Set(replies.map(r=>r.path)).size,1);assert.ok(replies.every(r=>r.method==='PATCH'));
+  });
+}finally{await mf.dispose();}
+
+await check('expired jobs are acknowledged without external work',async()=>{
+  let ack=false;const result=await processDiscordJob({body:{kind:'discord-analyze',interactionToken:'synthetic',expiresAt:Date.now()-1},ack(){ack=true;}},{});assert.equal(result,true);assert.equal(ack,true);
+});
+const originalFetch=globalThis.fetch;
+try{
+  globalThis.fetch=async()=>new Response('fixture unavailable',{status:503});
+  await check('transient Gemini failure schedules a bounded retry',async()=>{
+    let retry;let ack=false;await processDiscordJob({attempts:1,body:{kind:'discord-analyze',interactionId:'fixture-failure',interactionToken:'synthetic',expiresAt:Date.now()+60000,post:{id:'1',text:'fixture'}},retry(options){retry=options;},ack(){ack=true;}},{GEMINI_API_KEY:'synthetic',DISCORD_APPLICATION_ID:'1'});assert.deepEqual(retry,{delaySeconds:30});assert.equal(ack,false);
+  });
+  await check('exhausted attempts stop retrying and acknowledge',async()=>{
+    let retries=0;let ack=false;await processDiscordJob({attempts:3,body:{kind:'discord-analyze',interactionId:'fixture-exhausted',interactionToken:'synthetic',expiresAt:Date.now()+60000,post:{id:'1',text:'fixture'}},retry(){retries++;},ack(){ack=true;}},{GEMINI_API_KEY:'synthetic',DISCORD_APPLICATION_ID:'1'});assert.equal(retries,0);assert.equal(ack,true);
+  });
+}finally{globalThis.fetch=originalFetch;}
