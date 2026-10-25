@@ -45,14 +45,32 @@ https://x.com/thsottiaux/status/POST_ID
 
 [Codex Resets의 과거 공지 기록](https://codex-resets.com/)에서 키워드 없는 짧은 완료 안내와 초기화권 지급 사례를 확인해 판별 지침을 보완했습니다. 이 사이트는 로봇이 분류한 비공식 참고 자료이며, 운영 중 외부 분류 결과를 그대로 완료 확정값으로 가져오지는 않습니다. 짧은 완료 답변은 실제 연결 문맥이 초기화를 가리킬 때만 사용합니다. 나중에 직접 사용하는 초기화권(`banked reset`) 지급만 안내하면 현재 사용량의 초기화 완료가 아닌 관련 안내로 보냅니다.
 
+## 서버 입장과 알림 채널 설정
+
+봇이 서버에 입장하면 아래 안내와 채널 선택 메뉴를 보냅니다.
+
+> 반가워요! 저는 Tibo봇이에요.
+>
+> Tibo의 새 글과 초기화 안내를 받을 채널을 선택해 주세요.
+
+서버 관리 권한(또는 관리자 권한)이 있는 사용자가 메뉴에서 텍스트·공지 채널 하나를 선택합니다. `/알림설정`으로 메뉴를 다시 열거나 `/알림설정 채널:#원하는채널`로 바로 지정할 수 있습니다. 봇의 채널 보기·메시지 보내기·링크 임베드 권한을 확인한 후 저장하며, 권한이 부족하면 기존 설정을 유지합니다. 확인 응답은 설정한 사용자에게만 보입니다.
+
+- 환영 안내는 봇이 전송할 수 있는 시스템 채널, 없으면 텍스트·공지 채널 중 하나에 보냅니다. 쓸 수 있는 채널이 없으면 `/알림설정`을 사용하세요.
+- 재연결 때 같은 서버에 환영 안내를 반복하지 않습니다. 기존에 설치된 서버에도 첫 기능 적용 시 한 번 안내합니다.
+- 새 서버는 채널을 선택한 이후 발견한 글부터 받습니다. 과거 글은 한꺼번에 보내지 않습니다. 기존 운영 서버는 배포 설정의 알림 채널을 최초 한 번 가져와 유지합니다.
+- 서버별 채널과 발송 결과를 따로 저장합니다. 한 서버의 전송 실패는 다른 서버를 중단시키지 않으며, Gemini 분석은 게시글당 공통으로 처리합니다.
+- 채널 변경 뒤 이미 이전 채널로 발송 대기하던 메시지는 취소합니다. 새로 처리하는 메시지는 선택한 채널로 보냅니다.
+- 봇이 서버에서 나가면 해당 서버 알림을 비활성화합니다. 다시 입장하면 채널을 다시 선택합니다.
+
 ## 명령
 
 | 명령 | 동작 |
 | --- | --- |
+| `/알림설정 [채널]` | 서버 관리자용 채널 선택 메뉴 또는 지정한 채널로 변경 |
 | `/상태` | 마지막 수집 성공 시각, 기준점, 대기·완료·실패 건수를 비공개로 표시 |
 | `/검증` | 서버 관리 권한 필요. 표본 1개 수집 → Gemini → D1·Queue → 비공개 응답 확인. 전체 합계로 분당 1회·UTC 하루 20회 |
 
-명령은 설정한 테스트 서버·채널에서만 실행됩니다. `/상태`는 본인에게만 온라인 연결과 수집 상태를 표시합니다. 자동 알림은 `DISCORD_NOTIFY_CHANNEL_ID`로 지정한 채널로 전송합니다.
+`/알림설정`과 `/상태`는 봇이 설치된 서버에서 사용합니다. `/검증`만 설정한 테스트 서버·채널로 제한됩니다. `/상태`는 본인에게만 현재 서버의 알림 채널·전송 실패와 공통 수집 상태를 표시합니다.
 
 ## 구조
 
@@ -64,7 +82,10 @@ https://x.com/thsottiaux/status/POST_ID
 | `src/command-guard.js` | 검증 명령 재사용·호출량 제한 |
 | `src/input.js` | 외부 응답 바이트 제한과 AI 요약 서식 보호 |
 | `src/gateway.js` | 온라인 상태, Heartbeat 확인, 세션 재개·재접속 제한 |
-| `src/watcher.js` | 예약 수집, 링크 발송, 분석·공지 진행 |
+| `src/watcher.js` | 예약 수집, 공통 분석·공지 처리 |
+| `src/guild-settings.js` | 서버 입장 안내, 관리자·채널 권한 검증과 설정 저장 |
+| `src/deliveries.js` | 서버별 발송 이력·점유·실패 재시도 |
+| `src/notifications.js` | 지정 채널의 Discord 알림 전송·수정 |
 | `src/watch-store.js` | 기준점·처리 이력, 작업 점유·재시도, 일일 분석 상한, 인용된 예고 문맥 조회 |
 | `src/reset-analysis.js` | 초기화 분류, 원문 근거 확인, 공지 구성 |
 | `src/reset-time.js` | 원문 시간 표현 해석과 KST 변환 |
@@ -94,9 +115,9 @@ npx wrangler queues create tibo-bot-jobs
 | --- | --- |
 | `DISCORD_PUBLIC_KEY` | 앱 퍼블릭 키 |
 | `DISCORD_APPLICATION_ID` | 앱 ID |
-| `DISCORD_TEST_GUILD_ID` | 명령 실행 서버 ID |
-| `DISCORD_TEST_CHANNEL_ID` | 명령 실행 채널 ID |
-| `DISCORD_NOTIFY_CHANNEL_ID` | 새 글·초기화 공지 채널 ID |
+| `DISCORD_TEST_GUILD_ID` | 운영 검증 서버 및 기존 채널 설정 이관 대상 ID |
+| `DISCORD_TEST_CHANNEL_ID` | `/검증` 실행 채널 ID |
+| `DISCORD_NOTIFY_CHANNEL_ID` | 기존 서버의 초기 알림 채널. 이후 `/알림설정`의 저장값 우선 |
 | `NITTER_BASE_URL` | 공개 미러 HTTPS 주소 |
 | `WATCH_ENABLED` | 준비 후 문자열 `"true"`로 설정. 기본 `"false"` |
 | `RESET_ANALYSIS_DAILY_LIMIT` | 자동 분석 시도 일일 상한. 기본 100, 최대 100 |
@@ -109,16 +130,17 @@ npx wrangler secret put DISCORD_BOT_TOKEN --config wrangler.local.jsonc
 npx wrangler d1 migrations apply tibo-bot-db --remote --config wrangler.local.jsonc
 ```
 
-CLI에 D1 관리 권한이 없으면 해당 데이터베이스 Console에서 `migrations/0001_watch.sql`, `0002_thread_context.sql`을 순서대로 실행할 수 있습니다. 두 번째 파일은 열을 추가하므로 최초 한 번만 적용합니다. 기존 기준점·글 이력은 유지합니다.
+CLI에 D1 관리 권한이 없으면 해당 데이터베이스 Console에서 `migrations/0001_watch.sql`, `0002_thread_context.sql`, `0003_guild_channels.sql`을 순서대로 실행할 수 있습니다. 기존 설치에는 아직 적용하지 않은 파일만 실행합니다. 두 번째 파일은 열을 추가하므로 최초 한 번만 적용합니다. 기존 기준점·글 이력은 유지합니다. **새 코드를 배포하기 전에 0003의 테이블·인덱스를 적용해야 합니다.**
 
 Discord 앱을 `bot`, `applications.commands` 스코프와 채널 보기·메시지 보내기·링크 임베드·애플리케이션 명령어 사용 권한으로 설치합니다. `WATCH_ENABLED`를 `"true"`로 바꾼 뒤 배포합니다.
 
 ```sh
 npm run deploy
 npm run register:command -- --application-id YOUR_APP_ID --guild-id YOUR_GUILD_ID
+npm run register:command -- --application-id YOUR_APP_ID --global
 ```
 
-명령 등록에는 `.dev.vars`의 봇 토큰을 사용합니다. 자동화에서는 `DISCORD_BOT_TOKEN_FILE`로 보호된 파일을 지정하고 `node scripts/register-command.mjs ...`를 실행할 수도 있습니다. 기존 명령 전체를 교체하지 않고 `/검증`과 `/상태`를 각각 생성·갱신합니다.
+명령 등록에는 `.dev.vars`의 봇 토큰을 사용합니다. 자동화에서는 `DISCORD_BOT_TOKEN_FILE`로 보호된 파일을 지정하고 `node scripts/register-command.mjs ...`를 실행할 수도 있습니다. 기존 명령 전체를 교체하지 않고 테스트 서버에는 `/검증`·`/상태`·`/알림설정`, `--global` 사용 시 모든 설치 서버용 `/상태`·`/알림설정`을 생성·갱신합니다.
 
 Discord 개발자 포털의 Interactions Endpoint URL을 아래 형태로 설정합니다. 실제 서명 확인 요청이 통과해야 저장됩니다.
 
@@ -151,7 +173,7 @@ npm run dev
 npm test
 ```
 
-`npm test`는 배포 없는 빌드 후 135개 테스트를 실행합니다. 실제 계정·키·게시글을 사용하지 않으며 외부 API는 합성 응답으로 대체합니다. 기준점, 링크 단독 발송, 시간 변환과 DST, 중복 작업, 429 재시도, 장애 중 작업 복구, 분석 상한, 여러 페이지 수집, Discord 서명을 검증합니다.
+`npm test`는 배포 없는 빌드 후 149개 테스트를 실행합니다. 실제 계정·키·게시글을 사용하지 않으며 외부 API는 합성 응답으로 대체합니다. 기준점, 링크 단독 발송, 시간 변환과 DST, 중복 작업, 429 재시도, 장애 중 작업 복구, 분석 상한, 여러 페이지 수집, Discord 서명을 검증합니다.
 
 선택적으로 `GEMINI_API_KEY` 환경변수를 안전하게 설정한 터미널에서 `node scripts/evaluate-reset-analysis.mjs`를 실행하면 실제 Gemini로 합성 사례 20개를 분류합니다. API 사용량을 소비하며 Discord 발송이나 운영 DB 변경은 하지 않습니다. 키워드 없는 완료, 짧은 답변의 문맥 유무, 일반 배포, 오탈자, 초기화권 지급, 부분 반영, 부정, 빈 본문, 외부 지시문과 과거 회상·인용 감사·취소·기한 수정·일부 플랜 완료를 검증합니다. 사례 이름을 인자로 주면 해당 사례만 실행하며, HTTP 429가 발생하면 남은 호출을 중단합니다. 한 번의 통과가 모든 미래 게시글의 정확성을 보장하지는 않습니다.
 
@@ -160,7 +182,7 @@ npm test
 
 ## 온라인 표시 설정
 
-배포 설정의 `durable_objects`와 SQLite 마이그레이션 이력을 유지하고 `GATEWAY_ENABLED`를 `"true"`로 설정합니다. 기존 `DISCORD_BOT_TOKEN`을 사용하며 추가 privileged intent는 필요하지 않습니다. 배포 후 다음 Cron 실행에서 연결을 시작합니다. 공개 `/health`는 최소 서비스 상태만 반환하며 내부 객체를 호출하지 않습니다. 실제 온라인 연결 상태는 Discord의 비공개 `/상태`로 확인합니다.
+배포 설정의 `durable_objects`와 SQLite 마이그레이션 이력을 유지하고 `GATEWAY_ENABLED`를 `"true"`로 설정합니다. 기존 `DISCORD_BOT_TOKEN`을 사용하며 입장·퇴장 감지를 위한 비특권 `GUILDS` intent만 사용하며 추가 privileged intent는 필요하지 않습니다. 배포 후 다음 Cron 실행에서 연결을 시작합니다. 공개 `/health`는 최소 서비스 상태만 반환하며 내부 객체를 호출하지 않습니다. 실제 온라인 연결 상태는 Discord의 비공개 `/상태`로 확인합니다.
 
 연결 객체 이름은 고정되어 한 개만 사용합니다. Heartbeat ACK 누락, 연결 종료, Discord의 재접속 요청을 처리합니다. 살아 있는 세션은 재개하고, 새 인증은 재시작을 포함해 최소 2분 간격으로 제한합니다. 토큰의 SHA-256 해시로 교체를 구분하여 새 토큰에는 이전 인증 오류의 한 시간 대기를 적용하지 않습니다. 동일 토큰으로 재배포할 때는 대기가 유지됩니다. Gateway 저장소에는 토큰 원문을 저장하지 않습니다. 복구 대기는 최대 15분이며 치명적인 인증·설정 오류는 한 시간 동안 재시도를 제한합니다. `GATEWAY_ENABLED="false"`로 재배포하면 다음 Cron에서 연결을 종료합니다. 배포 설정에서 Durable Object 마이그레이션 이력을 임의로 삭제하지 마세요.
 
