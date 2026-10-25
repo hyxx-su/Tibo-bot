@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {statusMessage} from '../src/status-view.js';
 
 const now=Date.parse('2026-10-25T11:36:30Z');
-const base={state:{baseline_id:'100',last_success:now-30000,last_error:null},counts:[{phase:'done',count:5}],delivery:[],gateway:{status:'online'},channelId:'300',now};
+const base={state:{baseline_id:'100',last_success:now-30000,last_error:null},hasFailures:false,gateway:{status:'online'},channelId:'300',now};
 const field=(data,name)=>data.embeds.flatMap(embed=>embed.fields).find(field=>field.name===name)?.value;
 
 test('정상 상태는 하나의 비공개 임베드와 실제 채널·한국시간을 표시한다',()=>{
@@ -26,7 +26,7 @@ test('오래된 성공 기록은 연결이 온라인이어도 수집 지연으�
 });
 
 test('최근 수집 오류는 세부 건수 없이 오류와 필요한 안내만 표시한다',()=>{
-  const data=statusMessage({...base,state:{...base.state,last_error:'poll_failed'},counts:[{phase:'done',count:5},{phase:'analyze',count:2},{phase:'link',count:1},{phase:'failed',count:1}],delivery:[{phase:'pending',count:3},{phase:'failed',count:2}]});
+  const data=statusMessage({...base,state:{...base.state,last_error:'poll_failed'},hasFailures:true});
   assert.match(data.embeds[0].title,/🔴/);assert.match(data.embeds[0].title,/새 글을 확인하지 못/);
   assert.match(data.embeds[0].description,/다시 확인/);assert.doesNotMatch(JSON.stringify(data),/감시 기준점|전송 대기|처리 실패|[1235]건/);
 });
@@ -40,5 +40,5 @@ for(const channelId of [undefined,'not-a-channel'])test(`알림 채널 미설정
 });
 
 test('실제 전송 실패가 있으면 건수를 노출하지 않고 권한 확인을 안내한다',()=>{
-  const data=statusMessage({...base,delivery:[{phase:'failed',count:2}]});assert.match(data.embeds[0].title,/🔴 일부 알림/);assert.match(data.embeds[0].description,/권한/);assert.doesNotMatch(JSON.stringify(data),/2건|전송 실패/);
+  const data=statusMessage({...base,hasFailures:true});assert.match(data.embeds[0].title,/🔴 일부 알림/);assert.match(data.embeds[0].description,/권한/);assert.doesNotMatch(JSON.stringify(data),/2건|전송 실패/);
 });
