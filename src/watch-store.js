@@ -69,7 +69,7 @@ export async function resolveQuoteContext(db,post) {
   const quote=context.find(source=>source.relation==='quote');
   if(!quote)return post;
   // 인용한 글의 ID로 한정하여 저장된 같은 작성자의 예고 문맥만 보충한다.
-  const stored=await db.prepare('SELECT context_json,analysis_json FROM watched_posts WHERE id=?').bind(quote.id).first();
+  const stored=await db.prepare('SELECT context_json FROM watched_posts WHERE id=?').bind(quote.id).first();
   if(stored){
     const parents=JSON.parse(stored.context_json??'[]');
     for(const source of parents){

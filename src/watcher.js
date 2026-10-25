@@ -1,7 +1,7 @@
 import {readLimitedText} from './input.js';
 import {collectTimelinePage} from './collector.js';
 import {hasResetKeyword,analyzeReset,resetNotification} from './reset-analysis.js';
-import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis} from './watch-store.js';
+import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis,resolveQuoteContext} from './watch-store.js';
 
 const log=data=>console.log(JSON.stringify({service:'tibo-bot',...data}));
 export const watchEnabled=env=>env.WATCH_ENABLED==='true';
@@ -34,13 +34,17 @@ async function poll(env,job) {
   }
 }
 
-export async function sendNotification(env,postId,content,kind) {
+export async function sendNotification(env,postId,content,kind,messageId=null) {
   const channel=env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID;
   if(!env.DISCORD_BOT_TOKEN||!/^\d+$/.test(channel??''))throw new Error('Notification configuration missing');
-  const response=await fetch(`https://discord.com/api/v10/channels/${channel}/messages`,{
-    method:'POST',redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
-    body:JSON.stringify({content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]},nonce:`${kind==='link'?'l':'r'}${postId}`,enforce_nonce:true}),
+  if(messageId!==null&&!/^\d{1,20}$/.test(messageId))throw new Error('Invalid notification ID');
+  const payload={content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]}};
+  if(messageId)payload.flags=0;else Object.assign(payload,{nonce:`${kind==='link'?'l':'r'}${postId}`,enforce_nonce:true});
+  const response=await fetch(`https://discord.com/api/v10/channels/${channel}/messages${messageId?'/'+messageId:''}`,{
+    method:messageId?'PATCH':'POST',redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
+    body:JSON.stringify(payload),
   });
+  if(messageId&&response.status===404){await response.body?.cancel();return sendNotification(env,postId,content,kind);}
   if(!response.ok){
     const error=new Error('Notification failed');error.code='discord_'+response.status;error.permanent=[400,401,403,404].includes(response.status);
     if(response.status===429){const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));error.retryAfter=Math.min(86400,Math.ceil(Number(data.retry_after)||60));}
@@ -60,7 +64,7 @@ async function processPost(env,job) {
   try{
     const post={id:row.id,text:row.body,date:row.published_at,context:JSON.parse(row.context_json??'[]')};
     if(row.phase==='link'){
-      const needsAnalysis=!row.analysis_json&&hasResetKeyword([row.body,...post.context.map(p=>p.text)].join('\n'));
+      const needsAnalysis=!row.analysis_json&&(hasResetKeyword([row.body,...post.context.map(p=>p.text)].join('\n'))||post.context.some(source=>source.relation==='quote'));
       if(needsAnalysis){
         next='analyze';await advancePost(env.DB,row,token,next);
       }else{
@@ -72,14 +76,14 @@ async function processPost(env,job) {
       if(!await reserveAnalysis(env.DB,Date.now(),limit)){
         await deferAnalysis(env.DB,row,token,Date.now());log({event:'watch-analysis-budget'});return;
       }
-      const analysis=await analyzeReset(env,post);
+      const analysis=await analyzeReset(env,await resolveQuoteContext(env.DB,post));
       next=analysis.status==='unrelated'?'link':'reset';
       await advancePost(env.DB,row,token,next,{analysis});
       log({event:'watch-analysis',status:analysis.status,timeResolved:Boolean(analysis.time),totalTokens:analysis.usage?.totalTokenCount});
     }else if(row.phase==='reset'){
       const content=resetNotification(post,JSON.parse(row.analysis_json));
       if(!content)throw new Error('Reset notification missing');
-      const resetMessageId=await sendNotification(env,row.id,content,'reset');
+      const resetMessageId=await sendNotification(env,row.id,content,'reset',row.message_id);
       next='done';await advancePost(env.DB,row,token,next,{resetMessageId});
     }
     log({event:'watch-post',phase:row.phase,next});
@@ -113,16 +117,29 @@ async function replayPost(env,postId) {
   log({event:'watch-replay',found:true});
 }
 
+async function reanalyzePost(env,postId) {
+  if(!/^\d{1,20}$/.test(postId??''))throw new Error('Invalid reanalysis post');
+  const page=await collectTimelinePage(env.NITTER_BASE_URL);
+  const post=page.posts.find(source=>source.id===postId);
+  if(!post)throw new Error('Reanalysis post not on current timeline');
+  // 관리자 Queue의 지정 글 한 건만 재분석한다. 기존 링크 메시지를 수정하므로 중복 발송하지 않는다.
+  await env.DB.prepare("UPDATE watched_posts SET body=?,published_at=?,context_json=?,phase='analyze',attempts=0,next_attempt=0,last_error=NULL WHERE id=? AND phase='done' AND message_id IS NOT NULL AND reset_message_id IS NULL AND analysis_json IS NULL AND lease_until=0")
+    .bind(post.text,post.date,JSON.stringify(post.context??[]),post.id).run();
+  await dispatchPending(env);
+  log({event:'watch-reanalyze'});
+}
+
 export async function scheduleWatch(env) {
   if(watchEnabled(env))await env.PROBE_JOBS.send({kind:'watch-poll'});
 }
 
 export async function processWatchJob(message,env) {
   const job=message.body;
-  if(!['watch-poll','watch-post','watch-replay'].includes(job?.kind))return false;
+  if(!['watch-poll','watch-post','watch-replay','watch-reanalyze'].includes(job?.kind))return false;
   if(!watchEnabled(env)){message.ack();return true;}
   try{
     if(job.kind==='watch-poll')await poll(env,job);
+    else if(job.kind==='watch-reanalyze')await reanalyzePost(env,job.postId);
     else if(job.kind==='watch-replay')await replayPost(env,job.postId);
     else await processPost(env,job);
     message.ack();
