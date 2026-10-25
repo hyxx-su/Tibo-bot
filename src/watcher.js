@@ -1,4 +1,6 @@
-import {readLimitedText} from './input.js';
+export {sendNotification} from './notifications.js';
+import {seedLegacyGuild} from './guild-settings.js';
+import {queueDeliveries,pendingDeliveries,processDeliveryJob} from './deliveries.js';
 import {collectTimelinePage} from './collector.js';
 import {analyzeReset,resetNotification} from './reset-analysis.js';
 import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis,resolveQuoteContext} from './watch-store.js';
@@ -7,7 +9,7 @@ const log=data=>console.log(JSON.stringify({service:'tibo-bot',...data}));
 export const watchEnabled=env=>env.WATCH_ENABLED==='true';
 
 async function dispatchPending(env) {
-  const jobs=await pendingJobs(env.DB,Date.now());
+  const jobs=[...await pendingJobs(env.DB,Date.now()),...await pendingDeliveries(env.DB,Date.now())];
   if(jobs.length)await env.PROBE_JOBS.sendBatch(jobs);
 }
 
@@ -16,6 +18,7 @@ async function poll(env,job) {
   if(!job.cursor&&!await acquirePoll(env.DB,Date.now(),token))return;
   try{
     // 수집원이 실패하는 동안에도 이미 저장한 발송·분석 작업은 재개한다.
+    await seedLegacyGuild(env);
     await dispatchPending(env);
     const page=await collectTimelinePage(env.NITTER_BASE_URL,job.cursor);
     const result=await recordPage(env.DB,page.posts,Date.now());
@@ -34,27 +37,6 @@ async function poll(env,job) {
   }
 }
 
-export async function sendNotification(env,postId,content,kind,messageId=null) {
-  const channel=env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID;
-  if(!env.DISCORD_BOT_TOKEN||!/^\d+$/.test(channel??''))throw new Error('Notification configuration missing');
-  if(messageId!==null&&!/^\d{1,20}$/.test(messageId))throw new Error('Invalid notification ID');
-  const payload={content:Array.from(content).slice(0,1900).join(''),allowed_mentions:{parse:[]}};
-  if(messageId)payload.flags=0;else Object.assign(payload,{nonce:`${kind==='link'?'l':'r'}${postId}`,enforce_nonce:true});
-  const response=await fetch(`https://discord.com/api/v10/channels/${channel}/messages${messageId?'/'+messageId:''}`,{
-    method:messageId?'PATCH':'POST',redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
-    body:JSON.stringify(payload),
-  });
-  if(messageId&&response.status===404){await response.body?.cancel();return sendNotification(env,postId,content,kind);}
-  if(!response.ok){
-    const error=new Error('Notification failed');error.code='discord_'+response.status;error.permanent=[400,401,403,404].includes(response.status);
-    if(response.status===429){const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));error.retryAfter=Math.min(86400,Math.ceil(Number(data.retry_after)||60));}
-    else await response.body?.cancel();
-    throw error;
-  }
-  const data=JSON.parse(await readLimitedText(response,16384));
-  if(typeof data.id!=='string')throw new Error('Notification ID missing');
-  return data.id;
-}
 
 async function processPost(env,job) {
   const token=crypto.randomUUID();
@@ -69,8 +51,9 @@ async function processPost(env,job) {
       if(needsAnalysis){
         next='analyze';await advancePost(env.DB,row,token,next);
       }else{
-        const messageId=row.message_id??await sendNotification(env,row.id,`https://x.com/thsottiaux/status/${row.id}`,'link');
-        next='done';await advancePost(env.DB,row,token,next,{messageId});
+        await queueDeliveries(env,row,`https://x.com/thsottiaux/status/${row.id}`,'link');
+        next='done';await advancePost(env.DB,row,token,next);
+        await dispatchPending(env);
       }
     }else if(row.phase==='analyze'){
       const limit=Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100));
@@ -84,8 +67,9 @@ async function processPost(env,job) {
     }else if(row.phase==='reset'){
       const content=resetNotification(post,JSON.parse(row.analysis_json));
       if(!content)throw new Error('Reset notification missing');
-      const resetMessageId=await sendNotification(env,row.id,content,'reset',row.message_id);
-      next='done';await advancePost(env.DB,row,token,next,{resetMessageId});
+      await queueDeliveries(env,row,content,'reset');
+      next='done';await advancePost(env.DB,row,token,next);
+      await dispatchPending(env);
     }
     log({event:'watch-post',phase:row.phase,next});
   }catch(error){
@@ -136,6 +120,7 @@ export async function scheduleWatch(env) {
 
 export async function processWatchJob(message,env) {
   const job=message.body;
+  if(job?.kind==='watch-delivery')return processDeliveryJob(message,env);
   if(!['watch-poll','watch-post','watch-replay','watch-reanalyze'].includes(job?.kind))return false;
   if(!watchEnabled(env)){message.ack();return true;}
   try{

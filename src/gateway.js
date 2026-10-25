@@ -1,3 +1,4 @@
+import {recordGuildEvent} from './guild-settings.js';
 import {readLimitedText} from './input.js';
 const log=event=>console.log(JSON.stringify({service:'tibo-bot',event}));
 const fatalCodes=new Set([4004,4010,4011,4012,4013,4014]);
@@ -13,6 +14,7 @@ function gatewayUrl(value) {
 export class DiscordGateway {
   constructor(ctx,env) {
     this.ctx=ctx;this.env=env;this.ws=null;this.connecting=null;this.session=null;this.seq=null;
+    this.guildEvents=Promise.resolve();
     this.status='offline';this.acked=true;this.lastAck=null;this.connectedAt=null;this.retryAt=0;this.failures=0;
     ctx.blockConcurrencyWhile(async()=>{
       this.control=await ctx.storage.get('control')??{nextIdentifyAt:0,blockedUntil:0};
@@ -72,7 +74,7 @@ export class DiscordGateway {
     ws.accept();
     ws.addEventListener('message',event=>{
       if(ws!==this.ws)return;
-      try{if(typeof event.data!=='string'||event.data.length>65536)throw new Error('Invalid gateway message');this.receive(JSON.parse(event.data));}catch{this.disconnect();this.defer();log('gateway-protocol-failed');}
+      try{if(typeof event.data!=='string'||event.data.length>2097152)throw new Error('Invalid gateway message');this.receive(JSON.parse(event.data));}catch{this.disconnect();this.defer();log('gateway-protocol-failed');}
     });
     ws.addEventListener('close',event=>{if(ws===this.ws)this.closed(event.code);});
     ws.addEventListener('error',()=>{if(ws===this.ws){this.disconnect();this.defer();}});
@@ -94,13 +96,17 @@ export class DiscordGateway {
       };
       this.heartbeatTimer=setTimeout(tick,Math.random()*interval);
       if(this.session)this.send(6,{token:this.env.DISCORD_BOT_TOKEN,session_id:this.session.id,seq:this.seq});
-      else this.send(2,{token:this.env.DISCORD_BOT_TOKEN,intents:0,properties:{os:'linux',browser:'Tibo-bot',device:'Tibo-bot'},presence:{status:'online',since:null,afk:false,activities:[]}});
+      else this.send(2,{token:this.env.DISCORD_BOT_TOKEN,intents:1,properties:{os:'linux',browser:'Tibo-bot',device:'Tibo-bot'},presence:{status:'online',since:null,afk:false,activities:[]}});
     }else if(payload.op===11){this.acked=true;this.lastAck=new Date().toISOString();}
     else if(payload.op===1)this.heartbeat();
     else if(payload.op===7){this.disconnect();this.defer();}
     else if(payload.op===9){
       if(!payload.d){this.session=null;this.seq=null;}
       this.disconnect();this.defer();
+    }else if(payload.op===0&&['GUILD_CREATE','GUILD_DELETE'].includes(payload.t)){
+      // 입퇴장 순서를 보존하고 재연결의 GUILD_CREATE는 저장된 상태로 중복 안내를 방지한다.
+      this.guildEvents=this.guildEvents.then(()=>recordGuildEvent(this.env,payload.t,payload.d?.id,payload.d?.unavailable===true)).catch(()=>log('guild-event-failed'));
+      this.ctx.waitUntil(this.guildEvents);
     }else if(payload.op===0&&(payload.t==='READY'||payload.t==='RESUMED')){
       if(payload.t==='READY'){
         gatewayUrl(payload.d.resume_gateway_url);

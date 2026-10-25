@@ -1,3 +1,4 @@
+import {validId,canManage,channelMenu,configureGuild,seedLegacyGuild} from './guild-settings.js';
 import {readLimitedText,discordPlainText} from './input.js';
 import {claimVerification} from './command-guard.js';
 import {gatewayStatus} from './gateway.js';
@@ -6,7 +7,7 @@ import {analyzePost} from './gemini.js';
 import {readWatchStatus} from './watch-store.js';
 import {formatKoreanTime} from './reset-time.js';
 
-const jobKinds = ['discord-collect', 'discord-analyze', 'discord-reply'];
+const jobKinds = ['discord-collect', 'discord-analyze', 'discord-reply', 'discord-configure'];
 const privateReply = content => Response.json({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
 
 function bytesFromHex(value, length) {
@@ -29,16 +30,34 @@ export async function handleDiscord(request, env) {
   try{interaction=JSON.parse(raw);}catch{return new Response('Invalid JSON',{status:400});}
   if(!interaction||typeof interaction!=='object'||Array.isArray(interaction))return new Response('Invalid interaction',{status:400});
   if(interaction.type===1)return Response.json({type:1});
-  if(interaction.type!==2||!['검증','상태'].includes(interaction.data?.name))return privateReply('이 앱은 /검증, /상태 명령을 지원합니다.');
-  if(interaction.application_id!==env.DISCORD_APPLICATION_ID||interaction.guild_id!==env.DISCORD_TEST_GUILD_ID||interaction.channel_id!==env.DISCORD_TEST_CHANNEL_ID)return privateReply('설정된 서버와 채널에서 실행해 주세요.');
+  if(interaction.application_id!==env.DISCORD_APPLICATION_ID)return privateReply('이 앱의 명령이 아닙니다.');
+  const setup=interaction.type===2&&interaction.data?.name==='알림설정';
+  const selection=interaction.type===3&&interaction.data?.custom_id==='tibo:notify-channel';
+  if(setup||selection){
+    if(!validId(interaction.guild_id)||!interaction.member)return privateReply('서버에서 실행해 주세요.');
+    if(!canManage(interaction.member.permissions))return privateReply('알림 설정은 서버 관리 권한이 있는 사용자만 변경할 수 있습니다.');
+    const channelId=selection?interaction.data.values?.[0]:interaction.data.options?.find(option=>option.name==='채널')?.value;
+    if(setup&&!channelId)return Response.json({type:4,data:{content:'Tibo 메시지를 받을 채널을 선택해 주세요.',components:channelMenu(),flags:64,allowed_mentions:{parse:[]}}});
+    if(!validId(channelId)||!validId(interaction.id)||!validId(interaction.member.user?.id)||typeof interaction.token!=='string'||!interaction.token||interaction.token.length>2048)return privateReply('올바른 채널을 선택해 주세요.');
+    try{
+      await env.PROBE_JOBS.send({kind:'discord-configure',guildId:interaction.guild_id,channelId,userId:interaction.member.user.id,interactionId:interaction.id,interactionToken:interaction.token,expiresAt:Date.now()+14*60*1000});
+      return Response.json({type:5,data:{flags:64}});
+    }catch{return privateReply('설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');}
+  }
+  if(interaction.type!==2||!['검증','상태'].includes(interaction.data?.name))return privateReply('이 앱은 /알림설정, /검증, /상태 명령을 지원합니다.');
+  if(!validId(interaction.guild_id)||!interaction.member)return privateReply('서버에서 실행해 주세요.');
+  if(interaction.data.name==='검증'&&(interaction.guild_id!==env.DISCORD_TEST_GUILD_ID||interaction.channel_id!==env.DISCORD_TEST_CHANNEL_ID))return privateReply('설정된 서버와 채널에서 실행해 주세요.');
   if(interaction.data.name==='상태'){
     if(env.WATCH_ENABLED!=='true')return privateReply('자동 알림이 꺼져 있습니다.');
     try{
+      await seedLegacyGuild(env);
+      const settings=await env.DB.prepare('SELECT channel_id FROM guild_settings WHERE guild_id=? AND active=1').bind(interaction.guild_id).first();
       const {state,counts}=await readWatchStatus(env.DB);
+      const delivery=await env.DB.prepare('SELECT phase,COUNT(*) AS count FROM post_deliveries WHERE guild_id=? GROUP BY phase').bind(interaction.guild_id).all();
       const gateway=await gatewayStatus(env);
       const last=state?.last_success?formatKoreanTime(state.last_success):'아직 없음';
       const count=phase=>counts.find(row=>row.phase===phase)?.count??0;
-      return privateReply(`Discord 연결: ${gateway.status==='online'?'온라인':gateway.status==='disabled'?'비활성화':'연결 확인 중'}\n자동 확인: 1분 주기\n알림 채널: <#${env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID}>\n기준점: ${state?.baseline_id?'설정됨':'첫 수집 대기'}\n마지막 수집 성공: ${last}\n대기: ${count('link')+count('analyze')+count('reset')} · 완료: ${count('done')} · 실패: ${count('failed')}\n수집 상태: ${state?.last_error?'최근 오류 있음':'정상'}\n※ 미러의 갱신 지연과 수집 누락이 있을 수 있습니다.`);
+      return privateReply(`Discord 연결: ${gateway.status==='online'?'온라인':gateway.status==='disabled'?'비활성화':'연결 확인 중'}\n자동 확인: 1분 주기\n알림 채널: ${settings?.channel_id?`<#${settings.channel_id}>`:'미설정 · /알림설정으로 선택'}\n기준점: ${state?.baseline_id?'설정됨':'첫 수집 대기'}\n마지막 수집 성공: ${last}\n대기: ${count('link')+count('analyze')+count('reset')} · 완료: ${count('done')} · 실패: ${count('failed')}\n이 서버 전송 대기: ${delivery.results.find(r=>r.phase==='pending')?.count??0} · 전송 실패: ${delivery.results.find(r=>r.phase==='failed')?.count??0}\n수집 상태: ${state?.last_error?'최근 오류 있음':'정상'}\n※ 미러의 갱신 지연과 수집 누락이 있을 수 있습니다.`);
     }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
   }
   const permissions=interaction.member?.permissions;
@@ -73,7 +92,11 @@ export async function processDiscordJob(message, env) {
   if(typeof job.interactionToken!=='string'||!Number.isFinite(job.expiresAt)||Date.now()>job.expiresAt){message.ack();return true;}
   try{
     // 무료 Worker의 CPU 제한을 위해 수집·AI 분석·답변을 서로 다른 실행으로 나눈다.
-    if(job.kind==='discord-collect'){
+    if(job.kind==='discord-configure'){
+      let content;
+      try{content=await configureGuild(env,job);}catch(error){if(![403,404].includes(error.status))throw error;content='서버 또는 채널에 접근할 수 없습니다. 봇 권한과 서버 관리 권한을 확인해 주세요. 기존 설정은 유지됩니다.';}
+      await updateOriginal(env,job,content);
+    }else if(job.kind==='discord-collect'){
       const post=await collectLatestPost(env.NITTER_BASE_URL);
       await env.PROBE_JOBS.send({...job,kind:'discord-analyze',post});
     }else if(job.kind==='discord-analyze'){
@@ -92,7 +115,7 @@ export async function processDiscordJob(message, env) {
     // 토큰이 포함될 수 있는 외부 요청 URL과 오류 원문은 로그에 남기지 않는다.
     if(message.attempts<3){message.retry({delaySeconds:30});}
     else{
-      try{await updateOriginal(env,job,'검증을 완료하지 못했습니다. 수집원 상태 또는 Gemini 무료 한도를 확인해 주세요.');}catch{}
+      try{await updateOriginal(env,job,job.kind==='discord-configure'?'채널 설정을 완료하지 못했습니다. 잠시 후 /알림설정으로 다시 시도해 주세요.':'검증을 완료하지 못했습니다. 수집원 상태 또는 Gemini 무료 한도를 확인해 주세요.');}catch{}
       message.ack();
     }
     console.log(JSON.stringify({probe:'tibo-bot',event:'discord-stage',kind:job.kind,interactionId:job.interactionId,action:message.attempts<3?'retry':'failed'}));

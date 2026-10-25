@@ -1,3 +1,4 @@
+import {processGuildJob} from './guild-settings.js';
 import {maintainGateway} from './gateway.js';
 export {DiscordGateway} from './gateway.js';
 export {DiscordCommandGuard} from './command-guard.js';
@@ -19,7 +20,7 @@ export default {
   },
   async queue(batch,env) {
     for(const message of batch.messages){
-      if(!await processDiscordJob(message,env)&&!await processWatchJob(message,env)){
+      if(!await processGuildJob(message,env)&&!await processDiscordJob(message,env)&&!await processWatchJob(message,env)){
         console.log(JSON.stringify({service:'tibo-bot',event:'unsupported-job'}));
         message.ack();
       }
