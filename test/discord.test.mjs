@@ -104,10 +104,10 @@ try{
     await waitFor(()=>calls.some(c=>c.kind==='discord'&&c.body.content.includes('이제 <#30>')));
     assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
   });
-  await check('상태 명령은 현재 서버 채널과 전송 건수를 비공개 임베드 응답으로 제공한다',async()=>{
+  await check('상태 명령은 현재 서버 채널과 확인 시각만 단일 비공개 임베드로 제공한다',async()=>{
     const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'상태'}}))).json();
-    assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.embeds.length,3);assert.deepEqual(response.data.allowed_mentions,{parse:[]});
-    const fields=response.data.embeds.flatMap(embed=>embed.fields);assert.equal(fields.find(f=>f.name==='알림 채널').value,'<#30>');assert.equal(fields.find(f=>f.name==='전송 실패').value,'🟢 0건');assert.match(response.data.content,/🟡/);
+    assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.embeds.length,1);assert.deepEqual(response.data.allowed_mentions,{parse:[]});
+    const fields=response.data.embeds.flatMap(embed=>embed.fields);assert.equal(fields.find(f=>f.name==='알림 채널').value,'<#30>');assert.equal(fields.length,2);assert.equal(fields.find(f=>f.name==='최근 확인').value,'아직 확인 전');assert.match(response.data.embeds[0].title,/🟡/);
   });
 }finally{await mf.dispose();}
 
