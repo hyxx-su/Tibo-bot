@@ -13,7 +13,7 @@ if(!identity.ok){console.error('봇 인증 실패: HTTP '+identity.status);proce
 if((await identity.json()).id!==applicationId){console.error('지정한 앱의 토큰이 아닙니다. 명령을 등록하지 않았습니다.');process.exit(1);}
 // 기존 명령 전체를 교체하지 않고 검증 명령 하나만 생성·갱신한다.
 for(const command of [
-  {name:'검증',description:'Cloudflare·수집·Gemini·D1·Queue 연결을 검증합니다.',type:1},
+  {name:'검증',default_member_permissions:'32',description:'Cloudflare·수집·Gemini·D1·Queue 연결을 검증합니다.',type:1},
   {name:'상태',description:'자동 새 글 알림의 최근 수집 시각과 처리 상태를 확인합니다.',type:1},
 ]){
 const response=await fetch(`https://discord.com/api/v10/applications/${applicationId}/guilds/${guildId}/commands`,{

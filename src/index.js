@@ -1,13 +1,17 @@
-import {maintainGateway,gatewayStatus} from './gateway.js';
+import {maintainGateway} from './gateway.js';
 export {DiscordGateway} from './gateway.js';
+export {DiscordCommandGuard} from './command-guard.js';
 import {handleDiscord,processDiscordJob} from './discord.js';
-import {scheduleWatch,processWatchJob,watchEnabled} from './watcher.js';
+import {scheduleWatch,processWatchJob} from './watcher.js';
 
 export default {
   async fetch(request,env) {
     const path=new URL(request.url).pathname;
     if(path==='/discord')return handleDiscord(request,env);
-    if(path==='/'||path==='/health')return Response.json({service:'tibo-bot',mode:watchEnabled(env)?'watching':'verification',commands:['검증','상태'],gateway:await gatewayStatus(env)});
+    if(path==='/'||path==='/health'){
+      if(request.method!=='GET'&&request.method!=='HEAD')return new Response('Method not allowed',{status:405});
+      return new Response(request.method==='HEAD'?null:JSON.stringify({service:'tibo-bot',status:'ok'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+    }
     return new Response('Not found',{status:404});
   },
   async scheduled(controller,env) {

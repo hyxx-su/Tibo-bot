@@ -51,6 +51,10 @@
       {
         "name": "GATEWAY",
         "class_name": "DiscordGateway"
+      },
+      {
+        "name": "COMMAND_GUARD",
+        "class_name": "DiscordCommandGuard"
       }
     ]
   },
@@ -59,6 +63,12 @@
       "tag": "v1-gateway",
       "new_sqlite_classes": [
         "DiscordGateway"
+      ]
+    },
+    {
+      "tag": "v2-command-guard",
+      "new_sqlite_classes": [
+        "DiscordCommandGuard"
       ]
     }
   ]

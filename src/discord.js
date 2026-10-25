@@ -1,3 +1,5 @@
+import {claimVerification} from './command-guard.js';
+import {gatewayStatus} from './gateway.js';
 import {collectLatestPost} from './collector.js';
 import {analyzePost} from './gemini.js';
 import {readWatchStatus} from './watch-store.js';
@@ -17,7 +19,7 @@ export async function handleDiscord(request, env) {
   if(!key)return new Response('Verification is not configured',{status:503});
   const signature=bytesFromHex(request.headers.get('X-Signature-Ed25519'),64);
   const timestamp=request.headers.get('X-Signature-Timestamp');
-  if(!signature||!timestamp||!/^\d+$/.test(timestamp))return new Response('Unauthorized',{status:401});
+  if(!signature||!timestamp||!/^\d{1,12}$/.test(timestamp)||Math.abs(Date.now()/1000-Number(timestamp))>300)return new Response('Unauthorized',{status:401});
   const raw=await request.text();
   if(raw.length>65536)return new Response('Payload too large',{status:413});
   const publicKey=await crypto.subtle.importKey('raw',key,{name:'Ed25519'},false,['verify']);
@@ -32,13 +34,19 @@ export async function handleDiscord(request, env) {
     if(env.WATCH_ENABLED!=='true')return privateReply('자동 알림이 꺼져 있습니다.');
     try{
       const {state,counts}=await readWatchStatus(env.DB);
+      const gateway=await gatewayStatus(env);
       const last=state?.last_success?formatKoreanTime(state.last_success):'아직 없음';
       const count=phase=>counts.find(row=>row.phase===phase)?.count??0;
-      return privateReply(`자동 확인: 1분 주기\n알림 채널: <#${env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID}>\n기준점: ${state?.baseline_id?'설정됨':'첫 수집 대기'}\n마지막 수집 성공: ${last}\n대기: ${count('link')+count('analyze')+count('reset')} · 완료: ${count('done')} · 실패: ${count('failed')}\n수집 상태: ${state?.last_error?'최근 오류 있음':'정상'}\n※ 미러의 갱신 지연과 수집 누락이 있을 수 있습니다.`);
+      return privateReply(`Discord 연결: ${gateway.status==='online'?'온라인':gateway.status==='disabled'?'비활성화':'연결 확인 중'}\n자동 확인: 1분 주기\n알림 채널: <#${env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID}>\n기준점: ${state?.baseline_id?'설정됨':'첫 수집 대기'}\n마지막 수집 성공: ${last}\n대기: ${count('link')+count('analyze')+count('reset')} · 완료: ${count('done')} · 실패: ${count('failed')}\n수집 상태: ${state?.last_error?'최근 오류 있음':'정상'}\n※ 미러의 갱신 지연과 수집 누락이 있을 수 있습니다.`);
     }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
   }
-  if(typeof interaction.token!=='string'||!interaction.token||typeof interaction.id!=='string')return new Response('Invalid interaction',{status:400});
+  const permissions=interaction.member?.permissions;
+  if(typeof permissions!=='string'||!/^\d{1,30}$/.test(permissions)||(BigInt(permissions)&40n)===0n)return privateReply('검증은 서버 관리 권한이 있는 사용자만 실행할 수 있습니다.');
+  if(typeof interaction.token!=='string'||!interaction.token||interaction.token.length>2048||typeof interaction.id!=='string'||!/^\d{1,20}$/.test(interaction.id))return new Response('Invalid interaction',{status:400});
   try{
+    const claim=await claimVerification(env,interaction.id);
+    if(claim==='duplicate')return Response.json({type:5,data:{flags:64}});
+    if(claim==='limited')return privateReply('검증은 전체 합계로 분당 1회·하루 20회까지 실행할 수 있습니다. 잠시 후 다시 실행해 주세요.');
     // 분석을 기다리기 전에 작업을 큐에 보관하고 Discord에 지연 응답을 알린다.
     await env.PROBE_JOBS.send({kind:'discord-collect',interactionToken:interaction.token,interactionId:interaction.id,expiresAt:Date.now()+14*60*1000});
     return Response.json({type:5,data:{flags:64}});
