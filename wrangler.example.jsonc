@@ -4,8 +4,14 @@
   "compatibility_date": "2026-07-30",
   "workers_dev": true,
   "preview_urls": false,
-  "observability": { "enabled": true },
-  "triggers": { "crons": ["* * * * *"] },
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  },
   "vars": {
     "DISCORD_PUBLIC_KEY": "YOUR_64_HEX_DISCORD_PUBLIC_KEY",
     "DISCORD_APPLICATION_ID": "YOUR_DISCORD_APPLICATION_ID",
@@ -14,7 +20,8 @@
     "NITTER_BASE_URL": "https://x.noodl3.net",
     "DISCORD_NOTIFY_CHANNEL_ID": "YOUR_DISCORD_CHANNEL_ID",
     "WATCH_ENABLED": "false",
-    "RESET_ANALYSIS_DAILY_LIMIT": "100"
+    "RESET_ANALYSIS_DAILY_LIMIT": "100",
+    "GATEWAY_ENABLED": "false"
   },
   "d1_databases": [
     {
@@ -24,7 +31,12 @@
     }
   ],
   "queues": {
-    "producers": [ { "binding": "PROBE_JOBS", "queue": "tibo-bot-jobs" } ],
+    "producers": [
+      {
+        "binding": "PROBE_JOBS",
+        "queue": "tibo-bot-jobs"
+      }
+    ],
     "consumers": [
       {
         "queue": "tibo-bot-jobs",
@@ -33,5 +45,21 @@
         "max_retries": 2
       }
     ]
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GATEWAY",
+        "class_name": "DiscordGateway"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-gateway",
+      "new_sqlite_classes": [
+        "DiscordGateway"
+      ]
+    }
+  ]
 }
