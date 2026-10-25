@@ -94,4 +94,11 @@ try{
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r109');assert.equal(sent.length,1);assert.match(sent[0].body.content,/한국시간, KST\)까지/);
     assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l99').length,0);
   });
+  await test('관리자 재검증은 지정한 실제 글만 저장하고 완료 이력을 유지한다',async()=>{
+    threadMode=false;posts=[{id:'98',text:'기준점 이전 지정 글'}];
+    await queue.send({kind:'watch-replay',postId:'98'});await waitFor(async()=>(await row('98'))?.phase==='done');
+    await queue.send({kind:'watch-replay',postId:'98'});
+    posts=[...posts,{id:'97',text:'다음 지정 글'}];await queue.send({kind:'watch-replay',postId:'97'});await waitFor(async()=>(await row('97'))?.phase==='done');
+    assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l98').length,1);
+  });
 }finally{await mf.dispose();}
