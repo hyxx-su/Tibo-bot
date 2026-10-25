@@ -101,8 +101,9 @@ try{
   });
   await check('서명된 채널 메뉴 선택은 지연 응답 후 실제 설정과 비공개 확인을 저장한다',async()=>{
     const response=await(await signed(JSON.stringify({...base,type:3,id:'9200',guild_id:'20',member:{permissions:'32',user:{id:'90'}},data:{custom_id:'tibo:notify-channel',values:['30']}}))).json();assert.equal(response.type,5);assert.equal(response.data.flags,64);
-    await waitFor(()=>calls.some(c=>c.kind==='discord'&&c.body.content.includes('이제 <#30>')));
+    await waitFor(()=>calls.some(c=>c.kind==='discord'&&c.body.content?.includes('이제 <#30>')));
     assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
+    const notice=calls.find(c=>c.kind==='discord'&&c.path==='/api/v10/channels/30/messages');assert.ok(notice);assert.match(notice.body.embeds[0].description,/이제부터 이 채널에서/);assert.equal(notice.body.nonce,'c9200');assert.equal(notice.body.enforce_nonce,true);assert.deepEqual(notice.body.allowed_mentions,{parse:[]});
   });
   await check('상태 명령은 현재 서버 채널과 확인 시각만 단일 비공개 임베드로 제공한다',async()=>{
     const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'상태'}}))).json();

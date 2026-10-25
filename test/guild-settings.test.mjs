@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
 import {canSend,configureGuild,recordGuildEvent,sendWelcome,seedLegacyGuild} from '../src/guild-settings.js';
+import {processDiscordJob} from '../src/discord.js';
 import {queueDeliveries,processDeliveryJob} from '../src/deliveries.js';
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
@@ -13,7 +14,7 @@ const env={DB:db,DISCORD_APPLICATION_ID:'1',DISCORD_BOT_TOKEN:'synthetic',DISCOR
 const guild={id:'20',owner_id:'90',system_channel_id:'31'};
 const roles=[{id:'20',permissions:'0'},{id:'21',permissions:'19456'},{id:'22',permissions:'32'}];
 const bot={user:{id:'1'},roles:['21']};
-let admin={user:{id:'90'},roles:['22']},channel={id:'30',guild_id:'20',type:0,position:0,permission_overwrites:[]},failChannel=null;
+let admin={user:{id:'90'},roles:['22']},channel={id:'30',guild_id:'20',type:0,position:0,permission_overwrites:[]},failChannel=null,failStatus=403;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async(url,options={})=>{
   const path=new URL(url).pathname.replace('/api/v10','');
@@ -23,9 +24,10 @@ globalThis.fetch=async(url,options={})=>{
   if(path==='/guilds/20/members/90')return Response.json(admin);
   if(path==='/channels/30')return Response.json(channel);
   if(path==='/guilds/20/channels')return Response.json([channel,{...channel,id:'31',position:2}]);
+  if(path.startsWith('/webhooks/1/')){sent.push({path,body:JSON.parse(options.body),method:options.method});return Response.json({id:'90000'});}
   if(/^\/channels\/\d+\/messages/.test(path)){
     const body=JSON.parse(options.body);sent.push({path,body,method:options.method});
-    if(path===`/channels/${failChannel}/messages`)return new Response('',{status:403});
+    if(path===`/channels/${failChannel}/messages`)return new Response('',{status:failStatus});
     return Response.json({id:String(9000+sent.length)});
   }
   throw new Error('Unexpected fixture destination');
@@ -55,6 +57,11 @@ try{
     assert.match(await configureGuild(env,job),/최근/);assert.equal((await settings('20')).channel_id,'31');
     assert.match(await configureGuild(env,{...job,interactionId:'201'}),/<#30>/);assert.equal((await settings('20')).activated_at,first.activated_at);
   });
+  await test('선택한 채널에 짧은 확인 임베드를 보내고 재시도에 같은 nonce를 사용한다',async()=>{
+    const before=sent.length;assert.match(await configureGuild(env,{...job,interactionId:'201'}),/<#30>/);
+    const request=sent.at(-1);assert.equal(sent.length,before+1);assert.equal(request.path,'/channels/30/messages');assert.equal(request.body.embeds.length,1);assert.match(request.body.embeds[0].description,/이제부터 이 채널에서/);assert.deepEqual(request.body.allowed_mentions,{parse:[]});assert.equal(request.body.nonce,'c201');assert.equal(request.body.enforce_nonce,true);
+    const staleBefore=sent.length;await configureGuild(env,{...job,interactionId:'100'});assert.equal(sent.length,staleBefore);
+  });
   await test('타 서버 채널·음성 채널·봇 권한 부족은 기존 설정을 유지한다',async()=>{
     for(const change of [{guild_id:'99'},{type:2},{permission_overwrites:[{type:1,id:'1',deny:'2048',allow:'0'}]}]){
       const saved=channel;channel={...channel,...change};assert.doesNotMatch(await configureGuild(env,{...job,interactionId:'202'}),/이제/);assert.equal((await settings('20')).config_event,'201');channel=saved;
@@ -62,6 +69,19 @@ try{
   });
   await test('Queue 처리 시 관리자 권한이 회수된 사용자를 재검증한다',async()=>{
     const saved=admin;admin={user:{id:'91'},roles:[]};assert.match(await configureGuild(env,{...job,interactionId:'202'}),/서버 관리/);assert.equal((await settings('20')).config_event,'201');admin=saved;
+  });
+  await test('저장 뒤 확인 메시지 권한 오류는 설정 저장과 안내 실패를 구분한다',async()=>{
+    failChannel='30';const result=await configureGuild(env,{...job,interactionId:'202'});assert.match(result,/저장됐지만/);assert.match(result,/권한/);assert.equal((await settings('20')).config_event,'202');assert.equal((await settings('20')).channel_id,'30');failChannel=null;
+  });
+  await test('일시적인 확인 메시지 실패를 재시도해도 설정과 발송 nonce를 유지한다',async()=>{
+    failChannel='30';failStatus=503;
+    await assert.rejects(()=>configureGuild(env,{...job,interactionId:'203'}),error=>error.setupSaved===true);assert.equal((await settings('20')).config_event,'203');const nonce=sent.at(-1).body.nonce;
+    failChannel=null;failStatus=403;await configureGuild(env,{...job,interactionId:'203'});assert.equal(sent.at(-1).body.nonce,nonce);assert.equal(sent.at(-1).body.enforce_nonce,true);
+  });
+  await test('확인 메시지 재시도 소진 시에도 저장 완료 사실을 비공개 응답에 유지한다',async()=>{
+    failChannel='30';failStatus=503;let ack=false;
+    await processDiscordJob({attempts:3,body:{kind:'discord-configure',...job,interactionId:'204',interactionToken:'synthetic-notice',expiresAt:Date.now()+60000},ack(){ack=true;},retry(){throw new Error('Unexpected retry');}},env);
+    assert.equal(ack,true);assert.equal((await settings('20')).config_event,'204');assert.match(sent.at(-1).body.content,/설정은 저장됐지만 확인 메시지를 보내지 못/);assert.deepEqual(sent.at(-1).body.allowed_mentions,{parse:[]});failChannel=null;failStatus=403;
   });
   await test('한 서버의 전송 실패가 다른 서버를 막거나 중복 발송하지 않는다',async()=>{
     const now=Date.now();await queueDeliveries(env,{id:'500',message_id:null,discovered_at:now},'synthetic post','link');failChannel='30';
