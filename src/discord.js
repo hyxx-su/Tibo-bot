@@ -5,7 +5,7 @@ import {gatewayStatus} from './gateway.js';
 import {collectLatestPost} from './collector.js';
 import {analyzePost} from './gemini.js';
 import {readWatchStatus} from './watch-store.js';
-import {formatKoreanTime} from './reset-time.js';
+import {statusMessage} from './status-view.js';
 
 const jobKinds = ['discord-collect', 'discord-analyze', 'discord-reply', 'discord-configure'];
 const privateReply = content => Response.json({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
@@ -55,9 +55,7 @@ export async function handleDiscord(request, env) {
       const {state,counts}=await readWatchStatus(env.DB);
       const delivery=await env.DB.prepare('SELECT phase,COUNT(*) AS count FROM post_deliveries WHERE guild_id=? GROUP BY phase').bind(interaction.guild_id).all();
       const gateway=await gatewayStatus(env);
-      const last=state?.last_success?formatKoreanTime(state.last_success):'아직 없음';
-      const count=phase=>counts.find(row=>row.phase===phase)?.count??0;
-      return privateReply(`Discord 연결: ${gateway.status==='online'?'온라인':gateway.status==='disabled'?'비활성화':'연결 확인 중'}\n자동 확인: 1분 주기\n알림 채널: ${settings?.channel_id?`<#${settings.channel_id}>`:'미설정 · /알림설정으로 선택'}\n기준점: ${state?.baseline_id?'설정됨':'첫 수집 대기'}\n마지막 수집 성공: ${last}\n대기: ${count('link')+count('analyze')+count('reset')} · 완료: ${count('done')} · 실패: ${count('failed')}\n이 서버 전송 대기: ${delivery.results.find(r=>r.phase==='pending')?.count??0} · 전송 실패: ${delivery.results.find(r=>r.phase==='failed')?.count??0}\n수집 상태: ${state?.last_error?'최근 오류 있음':'정상'}\n※ 미러의 갱신 지연과 수집 누락이 있을 수 있습니다.`);
+      return Response.json({type:4,data:statusMessage({state,counts,delivery:delivery.results,gateway,channelId:settings?.channel_id})});
     }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
   }
   const permissions=interaction.member?.permissions;
