@@ -5,13 +5,16 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": true },
-  "triggers": { "crons": [] },
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "DISCORD_PUBLIC_KEY": "YOUR_64_HEX_DISCORD_PUBLIC_KEY",
     "DISCORD_APPLICATION_ID": "YOUR_DISCORD_APPLICATION_ID",
     "DISCORD_TEST_GUILD_ID": "YOUR_DISCORD_GUILD_ID",
     "DISCORD_TEST_CHANNEL_ID": "YOUR_DISCORD_CHANNEL_ID",
-    "NITTER_BASE_URL": "https://x.noodl3.net"
+    "NITTER_BASE_URL": "https://x.noodl3.net",
+    "DISCORD_NOTIFY_CHANNEL_ID": "YOUR_DISCORD_CHANNEL_ID",
+    "WATCH_ENABLED": "false",
+    "RESET_ANALYSIS_DAILY_LIMIT": "100"
   },
   "d1_databases": [
     {

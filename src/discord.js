@@ -1,5 +1,7 @@
 import {collectLatestPost} from './collector.js';
 import {analyzePost} from './gemini.js';
+import {readWatchStatus} from './watch-store.js';
+import {formatKoreanTime} from './reset-time.js';
 
 const jobKinds = ['discord-collect', 'discord-analyze', 'discord-reply'];
 const privateReply = content => Response.json({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
@@ -24,8 +26,17 @@ export async function handleDiscord(request, env) {
   try{interaction=JSON.parse(raw);}catch{return new Response('Invalid JSON',{status:400});}
   if(!interaction||typeof interaction!=='object'||Array.isArray(interaction))return new Response('Invalid interaction',{status:400});
   if(interaction.type===1)return Response.json({type:1});
-  if(interaction.type!==2||interaction.data?.name!=='검증')return privateReply('이 앱은 /검증 명령만 지원합니다.');
+  if(interaction.type!==2||!['검증','상태'].includes(interaction.data?.name))return privateReply('이 앱은 /검증, /상태 명령을 지원합니다.');
   if(interaction.application_id!==env.DISCORD_APPLICATION_ID||interaction.guild_id!==env.DISCORD_TEST_GUILD_ID||interaction.channel_id!==env.DISCORD_TEST_CHANNEL_ID)return privateReply('설정된 서버와 채널에서 실행해 주세요.');
+  if(interaction.data.name==='상태'){
+    if(env.WATCH_ENABLED!=='true')return privateReply('자동 알림이 꺼져 있습니다.');
+    try{
+      const {state,counts}=await readWatchStatus(env.DB);
+      const last=state?.last_success?formatKoreanTime(state.last_success):'아직 없음';
+      const count=phase=>counts.find(row=>row.phase===phase)?.count??0;
+      return privateReply(`자동 확인: 1분 주기\n알림 채널: <#${env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID}>\n기준점: ${state?.baseline_id?'설정됨':'첫 수집 대기'}\n마지막 수집 성공: ${last}\n대기: ${count('link')+count('analyze')+count('reset')} · 완료: ${count('done')} · 실패: ${count('failed')}\n수집 상태: ${state?.last_error?'최근 오류 있음':'정상'}\n※ 미러의 갱신 지연과 수집 누락이 있을 수 있습니다.`);
+    }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
+  }
   if(typeof interaction.token!=='string'||!interaction.token||typeof interaction.id!=='string')return new Response('Invalid interaction',{status:400});
   try{
     // 분석을 기다리기 전에 작업을 큐에 보관하고 Discord에 지연 응답을 알린다.
