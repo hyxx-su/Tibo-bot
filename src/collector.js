@@ -11,6 +11,11 @@ export async function parseTimelinePage(response) {
     .on('.timeline-item > .tweet-link',{element(el){if(current)current.id=el.getAttribute('href')?.match(/status\/(\d+)/)?.[1];}})
     .on('.timeline-item .tweet-header .tweet-date a',{element(el){if(current)current.date=el.getAttribute('title');}})
     .on('.timeline-item .tweet-content',{text(chunk){if(current)current.text+=chunk.text;}})
+    // 프로필·인용 카드의 이미지와 구분하여 해당 글에 직접 첨부된 미디어만 인정한다.
+    .on('.timeline-item > .tweet-body > .attachments img, .timeline-item > .tweet-body > .attachments video',{element(el){
+      if(current&&['src','poster','data-url'].some(name=>el.getAttribute(name)?.trim()))current.hasMedia=true;
+    }})
+    .on('.timeline-item > .tweet-body > .attachments video source[src]',{element(el){if(current&&el.getAttribute('src')?.trim())current.hasMedia=true;}})
     .on('.timeline-item .retweet-header',{element(){if(current)current.repost=true;}})
     .on('.show-more a',{element(el){
       const href=el.getAttribute('href');
@@ -40,7 +45,7 @@ export async function collectTimelinePage(baseUrl='https://x.noodl3.net',cursor=
   });
   if(!response.ok){await response.body?.cancel();throw new Error('Post source unavailable: '+response.status);}
   const page=await parseTimelinePage(response);
-  if(!page.posts.length||page.posts.some(post=>!post.date||!post.text.trim()))throw new Error('Post source returned no complete post');
+  if(!page.posts.length||page.posts.some(post=>!post.date||(!post.text.trim()&&!post.hasMedia)))throw new Error('Post source returned no complete post');
   return page;
 }
 
