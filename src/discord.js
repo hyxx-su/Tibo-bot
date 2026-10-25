@@ -109,11 +109,11 @@ export async function processDiscordJob(message, env) {
     }
     message.ack();
     console.log(JSON.stringify({probe:'tibo-bot',event:'discord-stage',kind:job.kind,interactionId:job.interactionId,action:'ack'}));
-  }catch{
+  }catch(error){
     // 토큰이 포함될 수 있는 외부 요청 URL과 오류 원문은 로그에 남기지 않는다.
     if(message.attempts<3){message.retry({delaySeconds:30});}
     else{
-      try{await updateOriginal(env,job,job.kind==='discord-configure'?'채널 설정을 완료하지 못했습니다. 잠시 후 /알림설정으로 다시 시도해 주세요.':'검증을 완료하지 못했습니다. 수집원 상태 또는 Gemini 무료 한도를 확인해 주세요.');}catch{}
+      try{await updateOriginal(env,job,job.kind==='discord-configure'?(error.setupSaved?'알림 채널 설정은 저장됐지만 확인 메시지를 보내지 못했습니다. /상태로 설정된 채널과 봇 권한을 확인해 주세요.':'채널 설정을 완료하지 못했습니다. 잠시 후 /알림설정으로 다시 시도해 주세요.'):'검증을 완료하지 못했습니다. 수집원 상태 또는 Gemini 무료 한도를 확인해 주세요.');}catch{}
       message.ack();
     }
     console.log(JSON.stringify({probe:'tibo-bot',event:'discord-stage',kind:job.kind,interactionId:job.interactionId,action:message.attempts<3?'retry':'failed'}));

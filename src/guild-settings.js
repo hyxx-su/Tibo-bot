@@ -50,7 +50,18 @@ export async function configureGuild(env,job) {
     ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id,active=1,
     activated_at=CASE WHEN guild_settings.channel_id IS NULL OR guild_settings.active=0 THEN excluded.activated_at ELSE guild_settings.activated_at END,
     config_event=excluded.config_event WHERE CAST(guild_settings.config_event AS INTEGER)<=CAST(excluded.config_event AS INTEGER) RETURNING channel_id`).bind(job.guildId,job.channelId,now,job.interactionId).first();
-  return saved?`이제 <#${saved.channel_id}>에서 Tibo의 새 글과 초기화 안내를 보내드릴게요!\n다른 채널로 바꾸려면 /알림설정을 사용해 주세요.`:'더 최근의 채널 설정이 있어 이 요청은 적용하지 않았습니다. /알림설정으로 확인해 주세요.';
+  if(!saved)return '더 최근의 채널 설정이 있어 이 요청은 적용하지 않았습니다. /알림설정으로 확인해 주세요.';
+  try{
+    // Queue 재전달과 비공개 응답 재시도에서도 같은 설정 요청은 같은 nonce를 사용한다.
+    await discordApi(env,`/channels/${saved.channel_id}/messages`,{method:'POST',body:JSON.stringify({
+      embeds:[{title:'✅ 알림 채널 설정 완료',description:'이제부터 이 채널에서 Tibo의 새 글과 초기화 안내를 보내드릴게요.',color:0x57F287}],
+      allowed_mentions:{parse:[]},nonce:'c'+job.interactionId,enforce_nonce:true,
+    })});
+  }catch(error){
+    if([403,404].includes(error.status))return `알림 채널은 <#${saved.channel_id}>로 저장됐지만, 해당 채널에 확인 메시지를 보내지 못했습니다. 봇의 채널 보기·메시지 보내기·링크 임베드 권한을 확인해 주세요.`;
+    error.setupSaved=true;throw error;
+  }
+  return `이제 <#${saved.channel_id}>에서 Tibo의 새 글과 초기화 안내를 보내드릴게요!\n다른 채널로 바꾸려면 /알림설정을 사용해 주세요.`;
 }
 
 export async function recordGuildEvent(env,type,guildId,unavailable=false) {
