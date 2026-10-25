@@ -13,7 +13,7 @@ const pages={first:timelineHtml()};
 const calls=[];
 const mf=new Miniflare({
   modules:true,script:await readFile(new URL('../.build/index.js',import.meta.url),'utf8'),compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
-  bindings:{DISCORD_BOT_TOKEN:'synthetic-bot',DISCORD_PUBLIC_KEY:publicKey,DISCORD_APPLICATION_ID:'1',DISCORD_TEST_GUILD_ID:'2',DISCORD_TEST_CHANNEL_ID:'3',GEMINI_API_KEY:'synthetic-test-key'},
+  bindings:{WATCH_ENABLED:'true',DISCORD_BOT_TOKEN:'synthetic-bot',DISCORD_PUBLIC_KEY:publicKey,DISCORD_APPLICATION_ID:'1',DISCORD_TEST_GUILD_ID:'2',DISCORD_TEST_CHANNEL_ID:'3',GEMINI_API_KEY:'synthetic-test-key'},
   durableObjects:{COMMAND_GUARD:{className:'DiscordCommandGuard',useSQLite:true}},d1Databases:['DB'],queueProducers:{PROBE_JOBS:'discord-fixture'},queueConsumers:{'discord-fixture':{maxBatchSize:1,maxBatchTimeout:0,maxRetries:2,retryDelay:0}},
   outboundService:async request=>{
     const url=new URL(request.url);
@@ -38,6 +38,7 @@ const mf=new Miniflare({
   },
 });
 const setupDb=await mf.getD1Database('DB');
+await setupDb.batch((await readFile(new URL('../migrations/0001_watch.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>setupDb.prepare(s)));
 await setupDb.batch((await readFile(new URL('../migrations/0003_guild_channels.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>setupDb.prepare(s)));
 const base={type:2,application_id:'1',guild_id:'2',channel_id:'3',id:'9001',member:{permissions:'32'},token:'synthetic-interaction-token',data:{name:'검증'}};
 async function signed(raw,overrides={}){
@@ -102,6 +103,11 @@ try{
     const response=await(await signed(JSON.stringify({...base,type:3,id:'9200',guild_id:'20',member:{permissions:'32',user:{id:'90'}},data:{custom_id:'tibo:notify-channel',values:['30']}}))).json();assert.equal(response.type,5);assert.equal(response.data.flags,64);
     await waitFor(()=>calls.some(c=>c.kind==='discord'&&c.body.content.includes('이제 <#30>')));
     assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
+  });
+  await check('상태 명령은 현재 서버 채널과 전송 건수를 비공개 임베드 응답으로 제공한다',async()=>{
+    const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'상태'}}))).json();
+    assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.embeds.length,3);assert.deepEqual(response.data.allowed_mentions,{parse:[]});
+    const fields=response.data.embeds.flatMap(embed=>embed.fields);assert.equal(fields.find(f=>f.name==='알림 채널').value,'<#30>');assert.equal(fields.find(f=>f.name==='전송 실패').value,'🟢 0건');assert.match(response.data.content,/🟡/);
   });
 }finally{await mf.dispose();}
 
