@@ -1,36 +1,47 @@
 # Tibo-bot
 
-Tibo(`@thsottiaux`)의 X 게시글을 수집하고 Gemini 3.5 Flash-Lite로 분류하는 Cloudflare Workers 기반 Discord 봇입니다. 현재 구현은 **`/검증` 명령으로 수집·분석·D1·Queue 연결을 확인하는 프로토타입**입니다.
+Tibo(`@thsottiaux`)의 새 X 게시글·답글을 Discord로 보내는 Cloudflare Workers 봇입니다. **1분마다 자동 확인하며 맥북을 켜둘 필요가 없습니다.** 미러의 갱신 지연이 있으므로 X 게시 후 1분 이내 도착을 보장하는 것은 아닙니다.
 
-명령을 실행하면 설정한 서버·채널에서 비공개 지연 응답을 보내고, 공개 미러에서 게시글 또는 답글 표본 하나를 읽어 Gemini 분류 결과를 원래 응답에 표시합니다. 배포된 코드는 Cloudflare에서 실행하므로 맥북을 계속 켜둘 필요는 없습니다.
+## 동작
 
-전체 게시글 이력 수집, 초기화 시각 예측, 주기적인 자동 알림은 향후 구현 범위입니다. 공개 미러의 가용성과 수집 누락 여부도 보장하지 않습니다.
+1. 처음에는 현재 최신 글을 기준점으로 저장합니다. 과거 글을 한꺼번에 보내지 않습니다.
+2. 이후 발견한 새 게시글·답글은 **X 원문 링크만** 보냅니다. 미리보기와 멘션은 끕니다.
+3. `reset`, `resets`, `resetting`, `초기화`가 있거나, 같은 스레드의 앞선 본문에 해당 표현이 있는 답글은 함께 Gemini 3.5 Flash-Lite로 분석합니다.
+4. 사용량 초기화 공지는 **초기화 예정 / 초기화 완료 공지 / 초기화 관련 언급**으로 구분해 추가로 보냅니다. “Rest and reset” 단독은 휴식 표현일 수 있지만, 같은 작성자가 같은 스레드에 초기화 기한을 덧붙인 경우 문맥을 함께 읽습니다.
+5. 원문에 근거가 있는 시각은 **한국시간(KST)** 으로 표시합니다. 날짜·시간대가 불명확하면 확정할 수 없다고 표시합니다.
+
+게시 시각이 `2026-10-25 12:00 UTC`이고 원문이 `tomorrow at 9am PT`라면 한국시간은 **2026-10-27 01:00**입니다. `in 2 hours`는 해당 게시 시각 기준으로 계산합니다. `By midnight PST`는 그 표현을 게시한 당시 PST 날짜의 다음 자정을 기한으로 계산합니다. 예를 들어 10월 25일 03:40 UTC의 해당 답글은 **10월 25일 17:00 KST까지**입니다. 원문의 PST는 UTC−8로 유지하며 PT(서머타임 적용 지역 시각)로 임의 교체하지 않습니다. 서머타임은 지역 시간대를 통해 반영하며, 전환 시점의 중복·존재하지 않는 시각은 확정하지 않습니다.
+
+Discord Gateway 상시 연결을 사용하지 않아 멤버 목록에는 **오프라인**으로 보일 수 있습니다. 자동 확인·발신과 명령 응답은 Cloudflare에서 실행됩니다.
+
+## 명령
+
+| 명령 | 동작 |
+| --- | --- |
+| `/상태` | 마지막 수집 성공 시각, 기준점, 대기·완료·실패 건수를 비공개로 표시 |
+| `/검증` | 표본 1개 수집 → Gemini → D1·Queue → 비공개 응답 경로 확인 |
+
+명령은 설정한 테스트 서버·채널에서만 실행됩니다. 자동 알림은 `DISCORD_NOTIFY_CHANNEL_ID`로 지정한 채널로 전송합니다.
 
 ## 구조
 
 | 파일 | 책임 |
 | --- | --- |
-| `src/index.js` | HTTP 요청·Queue 진입점 |
-| `src/discord.js` | 요청 서명·실행 대상 확인, 지연 응답과 작업 흐름 |
-| `src/collector.js` | Nitter HTML에서 대상 작성자의 게시글 표본 추출 |
-| `src/gemini.js` | Gemini 구조화 응답 요청과 결과 검증 |
-| `scripts/register-command.mjs` | 지정한 앱·서버에 `/검증` 하나만 등록 |
-| `test/` | 합성 HTML과 외부 API 응답으로 실행하는 테스트 |
+| `src/index.js` | HTTP·Cron·Queue 진입점 |
+| `src/discord.js` | Ed25519 서명 확인과 명령 응답 |
+| `src/collector.js` | 대상 작성자 게시글·답글과 다음 페이지 추출 |
+| `src/watcher.js` | 예약 수집, 링크 발송, 분석·공지 진행 |
+| `src/watch-store.js` | 기준점·처리 이력, 작업 점유와 재시도, 일일 분석 상한 |
+| `src/reset-analysis.js` | 초기화 분류, 원문 근거 확인, 공지 구성 |
+| `src/reset-time.js` | 원문 시간 표현 해석과 KST 변환 |
+| `src/gemini.js` | `/검증`용 표본 분류 |
+| `migrations/0001_watch.sql` | 자동 알림 저장 구조 |
 
-수집 → Gemini 분석 → Discord 응답을 서로 다른 Queue 실행으로 처리합니다. 재전달된 결과는 원래 메시지를 PATCH해 후속 메시지가 중복으로 늘어나지 않도록 합니다. D1은 현재 연결 확인용 SELECT에 사용하며 제품 데이터 저장 스키마는 아직 없습니다.
-
-## 준비
-
-- Node.js 24 이상
-- Cloudflare 계정과 Workers·D1·Queues 사용 가능 상태
-- Gemini API 키: Google AI Studio에서 해당 프로젝트의 무료 등급과 한도를 확인하세요.
-- Discord 애플리케이션과 봇을 설치할 서버의 관리 권한
-
-무료 사용량과 제한은 계정·모델별로 달라질 수 있습니다. [Workers 제한](https://developers.cloudflare.com/workers/platform/limits/), [D1 요금](https://developers.cloudflare.com/d1/platform/pricing/), [Queues 요금](https://developers.cloudflare.com/queues/platform/pricing/), [Gemini 요금·한도](https://ai.google.dev/gemini-api/docs/rate-limits)를 확인하세요.
+수집, 링크 발송, AI 분석, 초기화 공지는 서로 다른 Queue 실행으로 처리합니다. AI 실패가 원문 링크의 발송을 막지 않습니다. D1의 미완료 작업은 다음 수집 주기에 재개합니다.
 
 ## 설치와 배포
 
-### 1. 로컬 설정
+Node.js 24 이상, Cloudflare 계정, Gemini API 키, Discord 앱과 서버 관리 권한이 필요합니다.
 
 ```sh
 git clone https://github.com/hyxx-su/Tibo-bot.git
@@ -38,77 +49,74 @@ cd Tibo-bot
 npm ci
 cp wrangler.example.jsonc wrangler.local.jsonc
 cp .dev.vars.example .dev.vars
-```
-
-`wrangler.local.jsonc`와 `.dev.vars`는 Git에서 제외됩니다. 실제 ID나 비밀값은 예제 파일에 넣지 마세요.
-
-### 2. Cloudflare 리소스
-
-```sh
 npx wrangler login
 npx wrangler d1 create tibo-bot-db
 npx wrangler queues create tibo-bot-jobs
 ```
 
-생성 결과의 D1 데이터베이스 ID를 `wrangler.local.jsonc`에 넣습니다. Worker·D1·Queue 이름을 바꾸면 생산자와 소비자의 Queue 이름도 함께 맞춥니다. 현재 별도의 데이터베이스 마이그레이션은 필요하지 않습니다.
+`wrangler.local.jsonc`에 자신의 Worker·D1·Queue 이름과 D1 ID를 넣습니다. Queue 생산자와 소비자 이름은 같아야 합니다. 실제 설정과 `.dev.vars`는 Git에서 제외됩니다.
 
-### 3. Discord와 Gemini 값
+| 변수 | 값 |
+| --- | --- |
+| `DISCORD_PUBLIC_KEY` | 앱 퍼블릭 키 |
+| `DISCORD_APPLICATION_ID` | 앱 ID |
+| `DISCORD_TEST_GUILD_ID` | 명령 실행 서버 ID |
+| `DISCORD_TEST_CHANNEL_ID` | 명령 실행 채널 ID |
+| `DISCORD_NOTIFY_CHANNEL_ID` | 새 글·초기화 공지 채널 ID |
+| `NITTER_BASE_URL` | 공개 미러 HTTPS 주소 |
+| `WATCH_ENABLED` | 준비 후 문자열 `"true"`로 설정. 기본 `"false"` |
+| `RESET_ANALYSIS_DAILY_LIMIT` | 자동 분석 시도 일일 상한. 기본 100, 최대 100 |
 
-`wrangler.local.jsonc`의 다음 값을 자신의 앱·서버·채널 값으로 채웁니다.
-
-- `DISCORD_PUBLIC_KEY`: 개발자 포털의 앱 퍼블릭 키
-- `DISCORD_APPLICATION_ID`: 애플리케이션 ID
-- `DISCORD_TEST_GUILD_ID`: 실행을 허용할 서버 ID
-- `DISCORD_TEST_CHANNEL_ID`: 실행을 허용할 채팅 채널 ID
-
-`.dev.vars`에는 로컬 개발용 Gemini 키와 명령 등록용 봇 토큰을 넣습니다. 배포된 Worker의 Gemini 키는 암호화 비밀변수로 등록합니다.
+비밀값은 `.dev.vars`에 로컬 개발용으로 저장하고 배포 환경에는 암호화 비밀변수로 등록합니다. **자동 발신에 봇 토큰이 필요합니다.**
 
 ```sh
 npx wrangler secret put GEMINI_API_KEY --config wrangler.local.jsonc
-npm run deploy
+npx wrangler secret put DISCORD_BOT_TOKEN --config wrangler.local.jsonc
+npx wrangler d1 migrations apply tibo-bot-db --remote --config wrangler.local.jsonc
 ```
 
-봇 토큰은 명령 등록에만 사용하며 Worker에 저장할 필요가 없습니다. Discord의 지연 응답 수정에는 각 명령 요청이 제공하는 단기 interaction token을 사용합니다.
+CLI에 D1 관리 권한이 없으면 해당 데이터베이스 Console에서 `migrations/0001_watch.sql`, `0002_thread_context.sql`을 순서대로 실행할 수 있습니다. 두 번째 파일은 열을 추가하므로 최초 한 번만 적용합니다. 기존 기준점·글 이력은 유지합니다.
 
-### 4. Discord 연결
+Discord 앱을 `bot`, `applications.commands` 스코프와 채널 보기·메시지 보내기·링크 임베드·애플리케이션 명령어 사용 권한으로 설치합니다. `WATCH_ENABLED`를 `"true"`로 바꾼 뒤 배포합니다.
 
-개발자 포털의 Interactions Endpoint URL을 다음 형태로 설정하고 저장합니다.
+```sh
+npm run deploy
+npm run register:command -- --application-id YOUR_APP_ID --guild-id YOUR_GUILD_ID
+```
+
+명령 등록에는 `.dev.vars`의 봇 토큰을 사용합니다. 자동화에서는 `DISCORD_BOT_TOKEN_FILE`로 보호된 파일을 지정하고 `node scripts/register-command.mjs ...`를 실행할 수도 있습니다. 기존 명령 전체를 교체하지 않고 `/검증`과 `/상태`를 각각 생성·갱신합니다.
+
+Discord 개발자 포털의 Interactions Endpoint URL을 아래 형태로 설정합니다. 실제 서명 확인 요청이 통과해야 저장됩니다.
 
 ```text
 https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/discord
 ```
 
-Discord의 실제 서명 확인 요청이 통과해야 저장됩니다. 서버 설치에는 `bot`, `applications.commands` 스코프와 채널 보기·메시지 보내기·링크 임베드·애플리케이션 명령어 사용 권한을 지정합니다.
+Cron은 `* * * * *`로 매분 실행됩니다. [예약 변경 전파에는 최대 15분이 걸릴 수 있습니다.](https://developers.cloudflare.com/workers/configuration/cron-triggers/) `/상태`에서 기준점과 마지막 수집 성공 시각을 확인하세요. 첫 기준점 저장 전에는 감시가 시작된 것으로 간주하지 않습니다.
 
-### 5. 명령 등록
+## 운영과 제한
 
-`.dev.vars`의 `DISCORD_BOT_TOKEN`을 채운 후 실행합니다.
+- **중지·재개:** `WATCH_ENABLED`를 `"false"`로 바꾸고 재배포합니다. 예약 자체도 없애려면 `triggers.crons`를 `[]`로 바꿉니다. 재개할 때는 기존 D1 이력을 유지합니다.
+- **수집 범위:** 새 게시글·답글 대상이며 재게시, 다른 작성자의 문맥, 최초 기준점 이전 이력은 제외합니다. 최대 3페이지까지 따라갑니다. 기준점 이후에 작성됐지만 미러에 늦게 노출된 글도 조회 페이지 안에 있으면 발견합니다.
+- **무료 미러:** 차단·429·HTML 변경·갱신 지연·오래된 캐시가 생길 수 있습니다. 다음 주기에 다시 시도하지만 전체 글 무누락은 보장하지 않습니다. 마지막 성공 시각은 미러 응답을 받은 시각이며 X 최신성 보증이 아닙니다.
+- **중복 방지:** 글 ID, 처리 단계, 작업 점유와 Discord nonce를 사용합니다. 발송 성공 직후 저장에 실패하고 장시간 후 재시도하는 경우까지 정확히 한 번 전송을 보장하지 않습니다. [Discord nonce 중복 검사는 최근 몇 분 범위입니다.](https://docs.discord.com/developers/resources/message#create-message)
+- **실패 처리:** 발송·분석은 최대 6회, 간격을 늘려 재시도합니다. 인증·권한 오류는 즉시 실패로 남깁니다. `/상태`에 실패 건수가 있으면 토큰·권한·서비스 상태를 확인하고 해당 작업을 재개해야 합니다.
+- **AI와 시간:** 분류 오류 가능성이 있습니다. 현재 글과 미러에 표시된 동일 스레드의 앞선 동일 작성자 글 최대 5개를 함께 읽습니다. 다른 작성자나 단순히 인접한 글은 합치지 않습니다. 문맥에도 키워드가 없는 암시적 공지는 분석하지 않습니다. ISO 날짜·시간대, 명시된 날짜/오늘/내일과 UTC·KST·PT·ET·PST·PDT·EST·EDT, 분·시간 후, `by/before/at midnight 시간대` 표현을 지원합니다. `by/before`는 정확한 실행 시각이 아니라 “까지”라는 기한으로 표시합니다. 주중 이름·시간 범위 등 미지원 표현이나 날짜·시간대 누락은 확정하지 않습니다. 원문에 없는 다음 초기화 시각은 예측하지 않습니다.
+- **분석 상한:** 자동 분석 시도는 UTC 날짜 기준 최대 100회입니다. 상한 도달 시 링크는 보내고 분석을 다음 날로 미룹니다. `/검증` 호출은 별도이며 실제 잔여 무료량을 조회하는 기능은 아닙니다.
+- **무료 사용량:** 매분 수집 Queue만 정상 처리해도 하루 약 4,320회 연산을 사용하며 새 글·분석·발송·재시도는 추가됩니다. [Queues](https://developers.cloudflare.com/queues/platform/pricing/), [Workers](https://developers.cloudflare.com/workers/platform/limits/), [D1](https://developers.cloudflare.com/d1/platform/pricing/), [Gemini](https://ai.google.dev/gemini-api/docs/rate-limits)의 한도를 계정에서 확인하세요. 유료 요금제로 자동 전환하도록 설정하지 않습니다.
+
+## 관리자 단건 재검증
+
+감시 기준점 이전의 특정 글을 검증할 때는 Cloudflare Queues 관리 화면 또는 인증된 API로 `{"kind":"watch-replay","postId":"실제_글_ID"}` JSON을 보낼 수 있습니다. 현재 미러 첫 페이지에서 해당 글을 다시 읽으며, 지정하지 않은 과거 글은 발송하지 않습니다. 이미 완료된 이력은 덮어쓰지 않습니다. 이 작업은 공개 HTTP 요청이나 일반 Discord 명령으로 노출되지 않습니다.
+
+## 개발과 검증
 
 ```sh
-npm run register:command -- --application-id YOUR_APP_ID --guild-id YOUR_GUILD_ID
-```
-
-도구는 토큰이 해당 앱 소속인지 먼저 확인합니다. 기존 명령 전체를 교체하지 않고 `/검증` 하나를 생성·갱신합니다. 자동화에서 토큰을 파일로 관리한다면 `DISCORD_BOT_TOKEN_FILE` 환경변수도 사용할 수 있습니다.
-
-설정한 서버·채널에서 `/검증`을 실행해 실제 응답을 확인하세요. 명령 등록과 정상 응답은 각 배포 환경에서 직접 확인해야 합니다.
-
-## 개발과 테스트
-
-```sh
+npx wrangler d1 migrations apply tibo-bot-db --local --config wrangler.local.jsonc
 npm run dev
 npm test
 ```
 
-`npm test`는 예제 설정으로 배포 없는 빌드를 수행한 뒤 Miniflare/workerd에서 **30개 테스트**를 실행합니다. 실제 API 키나 계정 로그인은 필요하지 않으며 외부 서비스 응답은 테스트에서 대체합니다. HTML 표본은 직접 작성한 합성 데이터입니다.
+`npm test`는 배포 없는 빌드 후 71개 테스트를 실행합니다. 실제 계정·키·게시글을 사용하지 않으며 외부 API는 합성 응답으로 대체합니다. 기준점, 링크 단독 발송, 시간 변환과 DST, 중복 작업, 429 재시도, 장애 중 작업 복구, 분석 상한, 여러 페이지 수집, Discord 서명을 검증합니다.
 
-수집원의 403·429·점검 페이지, 작성자 구분, 서명 위조·본문 변조, 대상 서버·채널 제한, 지연 응답, 단계별 Queue 처리, 동일 메시지 갱신, 만료와 재시도를 확인합니다.
-
-## 현재 한계
-
-- 공개 미러는 429, 인증 토큰 소진, HTML 변경 등으로 중단될 수 있습니다. 수집 실패를 초기화 부재로 해석하면 안 됩니다.
-- 현재 수집 대상은 타임라인에서 대상 작성자의 첫 표본 하나이며 필수 필드를 검사합니다. 전체 이력과 무누락 여부는 검증하지 않습니다.
-- Gemini 분류는 원문 해석을 돕는 결과이며, 다음 초기화 시각이나 실제 사용자 한도 초기화를 확정하지 않습니다.
-- Queue는 재전달될 수 있어 같은 메시지 수정은 반복될 수 있습니다. Gemini 호출 비용까지 정확히 한 번으로 제한하는 처리는 아직 없습니다.
-- 기본 설정의 Cron 목록은 비어 있습니다. 상시 자동 수집·알림은 실행하지 않습니다.
-
-이관 전 검증 결과와 공개 버전의 검증 범위는 [검증 기록](docs/verification.md)에 정리했습니다. Discord 응답의 시간 제한은 [공식 문서](https://docs.discord.com/developers/interactions/receiving-and-responding)를 참고하세요.
+실제 서비스 실행 기록과 한계는 [검증 기록](docs/verification.md)에 정리합니다.
