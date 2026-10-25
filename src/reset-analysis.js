@@ -29,9 +29,17 @@ export async function analyzeReset(env,post) {
 }
 
 export function resetNotification(post,analysis) {
-  const label={scheduled:'초기화 예정',completed:'초기화 완료 공지',mentioned:'초기화 관련 언급'}[analysis.status];
+  const label={scheduled:'초기화 예상 시간 감지',completed:'초기화 완료 공지 감지',mentioned:'초기화 관련 내용 감지'}[analysis.status];
   if(!label)return null;
-  const timeLine=analysis.time?`한국시간: ${formatKoreanTime(analysis.time.timestamp)}${analysis.time.relation==='deadline'?'까지':''}\n시간 근거: ${analysis.time.basis}`:'한국시간: 원문에 확정 가능한 날짜·시각·시간대가 없습니다.';
-  const contextLink=post.context?.length?`\n연결 본문: https://x.com/thsottiaux/status/${post.context[0].id}`:'';
-  return `${label}\n${timeLine}\n${analysis.summary_ko}\n원문: https://x.com/thsottiaux/status/${post.id}${contextLink}`;
+  const local=analysis.time?formatKoreanTime(analysis.time.timestamp).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
+  const heading=local?`${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}`:'초기화 시각 미정';
+  const qualifier=analysis.status==='scheduled'?'추정':'원문 분석';
+  let description=analysis.summary_ko.replace(/[\r\n]+/g,' ').replace(/([*_`~<>])/g,'\\$1');
+  const midnight=analysis.time_expression?.match(/^(by|before|at)\s+midnight\s+(UTC|GMT|KST|PST|PDT|PT|EST|EDT|ET)[.!]?$/i);
+  if(analysis.status==='scheduled'&&analysis.time){
+    const source=post.context?.length?'게시글과 연결된 스레드의 내용을':'게시글의 내용을';
+    const target=midnight?`${midnight[2].toUpperCase()} 기준 다음 자정${analysis.time.relation==='deadline'?'까지':'에'}`:`위 한국시간${analysis.time.relation==='deadline'?'까지':'에'}`;
+    description=`${source} 분석한 결과, ${target} 초기화될 가능성이 있습니다.`;
+  }else if(!analysis.time)description+=' 원문에서 변환 가능한 초기화 시각은 확인되지 않았습니다.';
+  return `**:warning: ${label}**\n# ${heading}\n-# 한국시간(KST) · ${qualifier}\n\n${description}\n\nhttps://x.com/thsottiaux/status/${post.id}`;
 }

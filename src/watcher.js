@@ -59,16 +59,20 @@ async function processPost(env,job) {
   try{
     const post={id:row.id,text:row.body,date:row.published_at,context:JSON.parse(row.context_json??'[]')};
     if(row.phase==='link'){
-      const messageId=await sendNotification(env,row.id,`https://x.com/thsottiaux/status/${row.id}`,'link');
-      next=hasResetKeyword([row.body,...post.context.map(p=>p.text)].join('\n'))?'analyze':'done';
-      await advancePost(env.DB,row,token,next,{messageId});
+      const needsAnalysis=!row.analysis_json&&hasResetKeyword([row.body,...post.context.map(p=>p.text)].join('\n'));
+      if(needsAnalysis){
+        next='analyze';await advancePost(env.DB,row,token,next);
+      }else{
+        const messageId=row.message_id??await sendNotification(env,row.id,`https://x.com/thsottiaux/status/${row.id}`,'link');
+        next='done';await advancePost(env.DB,row,token,next,{messageId});
+      }
     }else if(row.phase==='analyze'){
       const limit=Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100));
       if(!await reserveAnalysis(env.DB,Date.now(),limit)){
         await deferAnalysis(env.DB,row,token,Date.now());log({event:'watch-analysis-budget'});return;
       }
       const analysis=await analyzeReset(env,post);
-      next=analysis.status==='unrelated'?'done':'reset';
+      next=analysis.status==='unrelated'?'link':'reset';
       await advancePost(env.DB,row,token,next,{analysis});
       log({event:'watch-analysis',status:analysis.status,timeResolved:Boolean(analysis.time),totalTokens:analysis.usage?.totalTokenCount});
     }else if(row.phase==='reset'){
@@ -79,9 +83,15 @@ async function processPost(env,job) {
     }
     log({event:'watch-post',phase:row.phase,next});
   }catch(error){
-    const action=await retryPost(env.DB,row,token,Date.now(),error);
-    log({event:'watch-post',phase:row.phase,action,code:error.code??'processing_failed'});
-    return;
+    if(row.phase==='analyze'&&row.attempts>=5){
+      // 분석 장애로 원문까지 누락되지 않게 최종 실패 시 링크 전송으로 마무리한다.
+      next='link';await advancePost(env.DB,row,token,next,{analysis:{status:'unavailable'}});
+      log({event:'watch-analysis-fallback'});
+    }else{
+      const action=await retryPost(env.DB,row,token,Date.now(),error);
+      log({event:'watch-post',phase:row.phase,action,code:error.code??'processing_failed'});
+      return;
+    }
   }
   if(next&&next!=='done'){
     // 저장 후 큐 발행이 실패해도 다음 주기에서 D1의 미완료 작업을 다시 찾는다.
