@@ -69,19 +69,22 @@ try{
   for(const field of ['application_id','guild_id','channel_id'])await check(`wrong ${field} cannot enqueue analysis`,async()=>{
     const r=await(await signed(JSON.stringify({...base,[field]:'different'}))).json();assert.equal(r.type,4);assert.equal(r.data.flags,64);assert.equal(calls.length,0);
   });
-  for(const permissions of [undefined,'0','-8','invalid'])await check(`검증 권한 부재·변조 ${permissions}를 거부한다`,async()=>{
-    const before=calls.length;const r=await(await signed(JSON.stringify({...base,member:{permissions}}))).json();assert.match(r.data.content,/서버 관리/);assert.equal(calls.length,before);
+  for(const permissions of [undefined,'0','-8','invalid'])await check(`알림설정 권한 부재·변조 ${permissions}를 거부한다`,async()=>{
+    const before=calls.length;const r=await(await signed(JSON.stringify({...base,member:{permissions},data:{name:'알림설정'}}))).json();assert.match(r.data.content,/서버 관리/);assert.equal(calls.length,before);
   });
-  await check('missing continuation token is refused',async()=>assert.equal((await signed(JSON.stringify({...base,token:''}))).status,400));
-  await check('valid command receives deferred private response',async()=>{const r=await(await signed(JSON.stringify(base))).json();assert.equal(r.type,5);assert.equal(r.data.flags,64);});
+  await check('제거한 검증 명령은 관리자·유효 토큰이어도 새 작업을 만들지 않는다',async()=>{
+    for(const fields of [{},{id:'9002'},{token:''}, {guild_id:'20',channel_id:'30'}]){
+      const response=await(await signed(JSON.stringify({...base,...fields}))).json();assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.content,'이 앱은 /알림설정, /상태 명령을 지원합니다.');
+    }
+    assert.equal(calls.length,0);
+  });
+  await check('제거 전에 큐에 들어간 검증 작업은 계속 마무리한다',async()=>{
+    const queue=await mf.getQueueProducer('PROBE_JOBS');await queue.send({kind:'discord-collect',interactionToken:base.token,interactionId:base.id,expiresAt:Date.now()+60000});
+  });
   await check('actual local Queue pipeline collects, analyzes and replies',async()=>{
     await waitFor(()=>calls.some(c=>c.kind==='discord'));assert.equal(calls.filter(c=>c.kind==='source').length,1);assert.equal(calls.filter(c=>c.kind==='gemini').length,1);
     const ai=calls.find(c=>c.kind==='gemini');assert.equal(ai.hasKey,true);assert.equal(ai.input.id,latestId);
     const reply=calls.find(c=>c.kind==='discord');assert.equal(reply.method,'PATCH');assert.ok(reply.path.endsWith('/messages/@original'));assert.deepEqual(reply.body.allowed_mentions,{parse:[]});assert.match(reply.body.content,/D1 연결/);
-  });
-  await check('같은 서명 요청 재사용과 다른 검증 요청 폭주가 추가 분석을 만들지 않는다',async()=>{
-    const before=calls.filter(c=>c.kind==='source').length;const duplicate=await(await signed(JSON.stringify(base))).json();assert.equal(duplicate.type,5);
-    const limited=await(await signed(JSON.stringify({...base,id:'9002'}))).json();assert.match(limited.data.content,/분당 1회/);assert.equal(calls.filter(c=>c.kind==='source').length,before);
   });
   await check('공개 health는 내부 상태를 공개하지 않는다',async()=>{assert.deepEqual(await(await mf.dispatchFetch('http://probe/health')).json(),{service:'tibo-bot',status:'ok'});});
   await check('duplicate result delivery updates the same message',async()=>{
