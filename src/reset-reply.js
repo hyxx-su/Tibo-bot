@@ -42,8 +42,7 @@ export function resetQuestionJob(message,applicationId,now=Date.now()) {
 }
 
 export function resetQuestionReply({state,posts,pending},now=Date.now(),question={}) {
-  if(question.intent==='help')return '초기화 소식이라면 맡겨. “오늘 초기화 없어?”, “언제 해?”, “다 끝났어?”처럼 물어봐.';
-  if(question.intent==='greeting')return '왔구나. 초기화 소식이 궁금하면 불러.';
+  if(['help','greeting'].includes(question.intent))return '초기화 관련 질문에만 답변할 수 있어. 초기화 일정이나 진행 상태가 궁금하면 물어봐!';
   if(question.intent==='manual')return '초기화를 직접 해줄 순 없어. 공지된 일정은 바로 알려줄게.';
   if(question.intent==='personal')return '네 계정의 사용량은 확인할 수 없어. Tibo가 올린 초기화 공지 기준으로 알려줄게.';
   if(!state?.baseline_id||!Number.isFinite(state.last_success)||state.last_error||now-state.last_success>180000||state.last_success>now+60000)return '지금 새 공지를 확인 중이야. 조금 뒤에 다시 물어봐.';
@@ -110,7 +109,8 @@ export async function processResetQuestionJob(message,env) {
       env.DB.prepare("SELECT EXISTS(SELECT 1 FROM watched_posts WHERE phase IN ('link','analyze','failed') AND analysis_json IS NULL) AS pending"),
     ]);
     if(results[0].results[0]?.active!==1){message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:'inactive-server'}));return true;}
-    const content=repeatQuestionReply(resetQuestionReply({state:results[1].results[0],posts:results[2].results,pending:Boolean(results[3].results[0]?.pending)},now,job),job.repeatCount);
+    const answer=resetQuestionReply({state:results[1].results[0],posts:results[2].results,pending:Boolean(results[3].results[0]?.pending)},now,job);
+    const content=['help','greeting'].includes(job.intent)?answer:repeatQuestionReply(answer,job.repeatCount);
     await discordApi(env,`/channels/${job.channelId}/messages`,{method:'POST',body:JSON.stringify({content,
       allowed_mentions:{parse:[],replied_user:false},nonce:'q'+job.messageId,enforce_nonce:true,
       message_reference:{message_id:job.messageId,fail_if_not_exists:false},
