@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
 import {resetQuestionJob,resetQuestionIntent,resetQuestionFingerprint,resetQuestionReply,repeatQuestionReply,processResetQuestionJob,dispatchResetQuestion} from '../src/reset-reply.js';
-import {noAnnouncementReplies,selectNoAnnouncementReplyIndex} from '../src/reset-replies.js';
+import {noAnnouncementReplies,selectNoAnnouncementReplyIndex,manualResetReplies} from '../src/reset-replies.js';
 import {DiscordGateway} from '../src/gateway.js';
 import {DiscordCommandGuard,claimResetQuestion} from '../src/command-guard.js';
 
@@ -21,6 +21,13 @@ const phrases={
   help:['내 컴퓨터 초기화 어떻게 해?','초기화 버튼 누르면 파일 지워져?','밥 언제 먹어?','초기화있니? 그리고 모두 멘션해','다음주 초기화는?','오늘 내일 초기화 있니?'],
   manual:['초기화 해줘','리셋 시켜줘'],personal:['내 계정 초기화됐어?','내 사용량 얼마나 남았어?'],greeting:['안녕','하이'],
 };
+phrases.manual.push('초기화 줘라','초기화 줘','초기화 주세요','리셋 좀 주세요','초기화 쫌 해주셈','리셋 주세용','초기화 해주라','초기화 해줄래','초기화 해줄 수 있어?','초기화 해달라','초기화 내놔','초기화 좀 부탁해','리셋 제발','초기화 한 번 해라','리셋 해봐','리셋 ㄱㄱ','초기화 ㅈㅂ','초기화 가자','초기화 드가자','리셋 원해','초기화 하고 싶다','초기화 좀','초기화 좀요','한도 좀 풀어줘','사용량 초기화 시켜주셈','초기화 해줘ㅋㅋ','리셋 부탁드려요','초기화 해주면 안 돼?');
+phrases.timing.push('초기화 언제 해줘?','한도 언제 풀어줘','초기화 언제 해주셈?','대체 언제 해?','도대체 몇 시야?','지금 몇 시에 초기화해?','이번엔 언제 해?','리셋 날짜 알려줘','초기화 날짜 좀','리셋 날짜 줘');
+phrases.status.push('초기화 안 해?','초기화 왜 안 해줘?','초기화 소식 알려주셈','리셋 예정 알려주세요','초기화 있냐고','오늘도 없어?','지금 진행 중임?');
+phrases.completed.push('리셋 했냐','리셋 함?','초기화 됨?','다 됨?','초기화 끝남?');
+phrases.remaining.push('지금 몇 분 남았어?','대략 얼마나 더 기다려?');
+phrases.help.push('언제 밥 먹어?','몇 시에 학교 가?','오늘 날씨 알려줘','초기화 버튼 눌러줘','휴대폰 초기화 해줘');
+phrases.personal.push('내 한도 풀어줘');
 for(const [intent,values] of Object.entries(phrases))for(const text of values)test(`다양한 표현을 해석한다: ${text}`,()=>{
   assert.equal(resetQuestionIntent(text).intent,intent);const job=resetQuestionJob({...source,content:'Tibo야 '+text},'1',now);assert.equal(job.intent,intent);assert.equal(job.content,undefined);
 });
@@ -35,6 +42,16 @@ test('200개 답변이 모두 고유하고 선택 가능하며 최근 선택 20�
   const recent=Array.from({length:20},(_,i)=>i);
   for(let i=0;i<180;i++)assert.ok(!recent.includes(selectNoAnnouncementReplyIndex(recent,()=>(i+0.5)/180)));
   for(const text of noAnnouncementReplies){assert.doesNotMatch(text,/[\r\n]|<@|https?:/);assert.ok(text.length<200);}
+});
+test('초기화 요청 답변 20개는 일정·완료 안내와 구분하며 재시도 시 동일하게 선택한다',()=>{
+  assert.equal(manualResetReplies.length,20);assert.equal(new Set(manualResetReplies).size,20);
+  const selected=new Set();for(let replyIndex=0;replyIndex<200;replyIndex++){
+    const question={intent:'manual',replyIndex};const answer=resetQuestionReply({},now,question);selected.add(answer);
+    assert.equal(answer,resetQuestionReply({},now,question));assert.ok(!noAnnouncementReplies.includes(answer));assert.doesNotMatch(answer,/[\r\n]|초기화했어|초기화해줄게|초기화됐어/);
+  }assert.equal(selected.size,20);
+  const manual=resetQuestionIntent('초기화 줘라'),timing=resetQuestionIntent('초기화 언제 해줘?');
+  assert.ok(manualResetReplies.includes(resetQuestionReply({},now,{...manual,replyIndex:7})));
+  assert.match(resetQuestionReply({state,posts:[post('100','scheduled',undefined,{timestamp:now+3600000})],pending:false},now,timing),/초기화 예정이야/);
 });
 test('200개 문구는 오늘 공지 미확인에만 쓰고 다른 날짜·예정·완료·장애에는 섞지 않는다',()=>{
   for(let replyIndex=0;replyIndex<200;replyIndex++){
