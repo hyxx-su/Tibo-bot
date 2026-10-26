@@ -16,7 +16,7 @@ export function resetQuestionIntent(value) {
   if(/(컴퓨터|휴대폰|핸드폰|윈도우|공장|비밀번호|설정|버튼|파일|기기|명령|프롬프트|지시|멘션|http|<@)/.test(text))return result('help');
   if(/(내계정|내사용량|내한도|내쿼터)/.test(text))return result('personal');
   const topic=/(초기화|리셋|reset|사용량|한도|쿼터)/.test(text);
-  const asksForInformation=/(언제|몇시|몇분|몇시간|얼마|시간|시각|일정|예정|계획|소식|공지|상태|알려|설명|맞아|맞지|했|됐|끝|완료|안해|안하|안줘|왜|진행|반영)/.test(text);
+  const asksForInformation=/(언제|몇시|몇분|몇시간|얼마|시간|시각|날짜|일정|예정|계획|소식|공지|상태|알려|설명|맞아|맞지|했|됐|끝|완료|안해|안하|안줘|왜|진행|반영)/.test(text);
   const asksToReset=/(줘|주라|줘라|주세요|주세[요욤용]|주셈|쥬라|주삼|줄래|주면|달라|내놔|시켜|실행해|풀어|부탁|제발|해라|해주|해줄|해봐|ㄱㄱ|ᄀᄀ|ㅈㅂ|ᄌᄇ|가자|드가자|원해|하고싶|해$|좀(?:요|욤|용)?$)/.test(text);
   // 부탁·요구와 시각 질문을 구분한다. “언제 해줘?”는 일정 질문이며 실행 약속을 만들지 않는다.
   if(topic&&asksToReset&&!asksForInformation)return result('manual');
