@@ -113,21 +113,25 @@ export async function processResetQuestionJob(message,env) {
     message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:env.RESET_CHAT_ENABLED!=='true'?'disabled':invalid?'invalid':'expired'}));return true;
   }
   try{
-    const results=await env.DB.batch([
-      env.DB.prepare('SELECT active FROM guild_settings WHERE guild_id=?').bind(job.guildId),
+    const needsStatus=!['help','greeting','personal'].includes(job.intent);
+    // 고정 안내에는 게시글 분석을 읽지 않되, 퇴장한 서버의 응답 차단은 유지한다.
+    const queries=[env.DB.prepare('SELECT active FROM guild_settings WHERE guild_id=?').bind(job.guildId)];
+    if(needsStatus)queries.push(
       env.DB.prepare('SELECT baseline_id,last_success,last_error FROM watch_state WHERE id=1'),
       env.DB.prepare('SELECT id,published_at,analysis_json FROM watched_posts ORDER BY id DESC LIMIT 100'),
       env.DB.prepare("SELECT EXISTS(SELECT 1 FROM watched_posts WHERE phase IN ('link','analyze','failed') AND analysis_json IS NULL) AS pending"),
-    ]);
+    );
+    const results=await env.DB.batch(queries);
+    const databaseMs=Date.now()-now;
     if(results[0].results[0]?.active!==1){message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:'inactive-server'}));return true;}
-    const answer=resetQuestionReply({state:results[1].results[0],posts:results[2].results,pending:Boolean(results[3].results[0]?.pending)},now,job);
+    const answer=resetQuestionReply(needsStatus?{state:results[1].results[0],posts:results[2].results,pending:Boolean(results[3].results[0]?.pending)}:{},now,job);
     const content=['help','greeting'].includes(job.intent)?answer:repeatQuestionReply(answer,job.repeatCount);
     await discordApi(env,`/channels/${job.channelId}/messages`,{method:'POST',body:JSON.stringify({content,
       allowed_mentions:{parse:[],replied_user:false},nonce:'q'+job.messageId,enforce_nonce:true,
       message_reference:{message_id:job.messageId,fail_if_not_exists:false},
     })});
     message.ack();
-    console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-replied',dispatchAgeMs:Math.max(0,now-job.issuedAt),processingMs:Date.now()-now}));
+    console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-replied',dispatchAgeMs:Math.max(0,now-job.issuedAt),databaseMs,processingMs:Date.now()-now}));
   }catch(error){
     if(![400,401,403,404].includes(error.status)&&message.attempts<2)message.retry({delaySeconds:30});
     else message.ack();
