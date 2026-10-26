@@ -10,8 +10,9 @@ export async function queueDeliveries(env,post,content,kind) {
     .bind(post.id,kind,content,env.DISCORD_TEST_GUILD_ID??'',post.message_id,post.discovered_at).run();
 }
 
-export async function pendingDeliveries(db,now) {
-  const {results}=await db.prepare("SELECT post_id,guild_id,kind FROM post_deliveries WHERE phase='pending' AND next_attempt<=? AND lease_until<=? LIMIT 10").bind(now,now).all();
+export async function pendingDeliveries(db,now,includeSiteResets=true) {
+  // 중지한 사이트 알림이 조회 상한을 차지하여 X 알림의 복구를 막지 않게 한다.
+  const {results}=await db.prepare("SELECT post_id,guild_id,kind FROM post_deliveries WHERE phase='pending' AND next_attempt<=? AND lease_until<=? AND (?=1 OR kind!='site-reset') LIMIT 10").bind(now,now,includeSiteResets?1:0).all();
   return results.map(row=>({body:{kind:'watch-delivery',postId:row.post_id,guildId:row.guild_id,deliveryKind:row.kind}}));
 }
 

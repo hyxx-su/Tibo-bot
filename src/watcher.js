@@ -9,7 +9,7 @@ const log=data=>console.log(JSON.stringify({service:'tibo-bot',...data}));
 export const watchEnabled=env=>env.WATCH_ENABLED==='true';
 
 async function dispatchPending(env) {
-  const jobs=[...await pendingJobs(env.DB,Date.now()),...await pendingDeliveries(env.DB,Date.now())];
+  const jobs=[...await pendingJobs(env.DB,Date.now()),...await pendingDeliveries(env.DB,Date.now(),env.SITE_RESETS_ENABLED==='true')];
   if(jobs.length)await env.PROBE_JOBS.sendBatch(jobs);
 }
 
