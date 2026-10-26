@@ -1,6 +1,6 @@
 import {recordGuildEvent,recordChannelDeletion} from './guild-settings.js';
 import {readLimitedText} from './input.js';
-import {resetQuestionJob} from './reset-reply.js';
+import {resetQuestionJob,dispatchResetQuestion} from './reset-reply.js';
 import {claimResetQuestion} from './command-guard.js';
 const log=event=>console.log(JSON.stringify({service:'tibo-bot',event}));
 const fatalCodes=new Set([4004,4010,4011,4012,4013,4014]);
@@ -115,7 +115,7 @@ export class DiscordGateway {
     }else if(payload.op===0&&payload.t==='MESSAGE_CREATE'&&this.env.RESET_CHAT_ENABLED==='true'){
       const job=resetQuestionJob(payload.d,this.env.DISCORD_APPLICATION_ID);
       if(job)this.ctx.waitUntil((async()=>{
-        if(await claimResetQuestion(this.env,job)==='accepted')await this.env.PROBE_JOBS.send(job);
+        if(await claimResetQuestion(this.env,job)==='accepted')await dispatchResetQuestion(job,this.env);
       })().catch(()=>log('reset-question-dispatch-failed')));
     }else if(payload.op===0&&(payload.t==='READY'||payload.t==='RESUMED')){
       if(payload.t==='READY'){

@@ -55,7 +55,10 @@ export function resetQuestionReply({state,posts,pending},now=Date.now()) {
 export async function processResetQuestionJob(message,env) {
   if(message.body?.kind!=='reset-question')return false;
   const job=message.body,now=Date.now();
-  if(env.RESET_CHAT_ENABLED!=='true'||![job.guildId,job.channelId,job.userId,job.messageId].every(validId)||!Number.isFinite(job.issuedAt)||job.issuedAt>now+60000||now-job.issuedAt>120000){message.ack();return true;}
+  const invalid=![job.guildId,job.channelId,job.userId,job.messageId].every(validId)||!Number.isFinite(job.issuedAt);
+  if(env.RESET_CHAT_ENABLED!=='true'||invalid||job.issuedAt>now+60000||now-job.issuedAt>120000){
+    message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:env.RESET_CHAT_ENABLED!=='true'?'disabled':invalid?'invalid':'expired'}));return true;
+  }
   try{
     const results=await env.DB.batch([
       env.DB.prepare('SELECT active FROM guild_settings WHERE guild_id=?').bind(job.guildId),
@@ -63,18 +66,25 @@ export async function processResetQuestionJob(message,env) {
       env.DB.prepare('SELECT id,published_at,analysis_json FROM watched_posts ORDER BY id DESC LIMIT 100'),
       env.DB.prepare("SELECT EXISTS(SELECT 1 FROM watched_posts WHERE phase IN ('link','analyze','failed') AND analysis_json IS NULL) AS pending"),
     ]);
-    if(results[0].results[0]?.active!==1){message.ack();return true;}
+    if(results[0].results[0]?.active!==1){message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:'inactive-server'}));return true;}
     const content=resetQuestionReply({state:results[1].results[0],posts:results[2].results,pending:Boolean(results[3].results[0]?.pending)},now);
     await discordApi(env,`/channels/${job.channelId}/messages`,{method:'POST',body:JSON.stringify({content,
       allowed_mentions:{parse:[],replied_user:false},nonce:'q'+job.messageId,enforce_nonce:true,
       message_reference:{message_id:job.messageId,fail_if_not_exists:false},
     })});
     message.ack();
-    console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-replied'}));
+    console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-replied',dispatchAgeMs:Math.max(0,now-job.issuedAt),processingMs:Date.now()-now}));
   }catch(error){
     if(![400,401,403,404].includes(error.status)&&message.attempts<2)message.retry({delaySeconds:30});
     else message.ack();
     console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-failed',httpStatus:error.status??null}));
   }
   return true;
+}
+
+export async function dispatchResetQuestion(job,env) {
+  // 대화 응답은 수집 Queue를 기다리지 않는다. 일시 실패만 기존 Queue에서 재시도한다.
+  let retry;
+  await processResetQuestionJob({body:job,attempts:0,ack(){},retry(options){retry=options;}},env);
+  if(retry)await env.PROBE_JOBS.send(job,{delaySeconds:retry.delaySeconds});
 }
