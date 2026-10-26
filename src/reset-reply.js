@@ -99,7 +99,7 @@ export function resetQuestionReply({state,posts,pending},now=Date.now(),question
 }
 
 export function repeatQuestionReply(content,count=0) {
-  if(!Number.isInteger(count)||count<=0)return content;
+  if(count!==1)return content;
   return content+' 아까도 물어봤지? 😏';
 }
 
