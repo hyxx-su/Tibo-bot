@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
-import {resetQuestionJob,resetQuestionReply,processResetQuestionJob} from '../src/reset-reply.js';
+import {resetQuestionJob,resetQuestionReply,processResetQuestionJob,dispatchResetQuestion} from '../src/reset-reply.js';
 import {DiscordGateway} from '../src/gateway.js';
 import {DiscordCommandGuard,claimResetQuestion} from '../src/command-guard.js';
 
@@ -68,6 +68,13 @@ try{
   await test('권한·채널 없음 오류는 멈추고 일시 API 오류만 제한해서 재시도한다',async()=>{
     status=403;assert.equal((await process()).ack,true);status=503;assert.equal((await process()).retry.delaySeconds,30);assert.equal((await process({},2)).ack,true);status=200;
   });
+  await test('즉시 응답은 Queue를 건너뛰고 일시 실패만 같은 nonce로 재시도한다',async()=>{
+    const queued=[];const directEnv={...env,PROBE_JOBS:{async send(...args){queued.push(args);}}};
+    const job=resetQuestionJob({...source,timestamp:new Date().toISOString()},'1');
+    await dispatchResetQuestion(job,directEnv);assert.equal(queued.length,0);assert.equal(calls.at(-1).nonce,'q100');
+    status=403;await dispatchResetQuestion(job,directEnv);assert.equal(queued.length,0);
+    status=503;await dispatchResetQuestion(job,directEnv);assert.deepEqual(queued,[[job,{delaySeconds:30}]]);status=200;
+  });
 }finally{globalThis.fetch=originalFetch;await mf.dispose();}
 
 function guardFixture(initial){
@@ -85,13 +92,14 @@ await test('질문 일일 상한은 재시작에도 유지하고 옛 검증 예�
   assert.equal((await f.claim('100')).result,'limited');assert.equal((await guardFixture(Object.fromEntries(f.state)).claim('101')).result,'limited');assert.deepEqual(f.state.get('budget'),{untouched:true});
   f.state.set('chat-budget',{...budget,day:'2000-01-01'});assert.equal((await f.claim('102')).result,'accepted');assert.equal(f.state.get('chat-budget').count,1);
 });
-await test('Gateway는 질문 본문을 Queue에 남기지 않고 중복 제한을 거쳐 전달한다',async()=>{
-  let initialized;const waits=[],jobs=[],guards=[];
+await test('Gateway는 중복 제한 후 즉시 응답하고 정상 질문을 Queue에 보내지 않는다',async()=>{
+  let initialized;const waits=[],jobs=[],guards=[];let reads=0;
   const ctx={storage:{async get(){return undefined;},async put(){}},blockConcurrencyWhile(fn){initialized=fn();},waitUntil(p){waits.push(p);}};
   const config={RESET_CHAT_ENABLED:'true',DISCORD_APPLICATION_ID:'1',COMMAND_GUARD:{idFromName(name){assert.equal(name,'discord-reset-chat');return name;},get(){return {async fetch(request,options){const body=JSON.parse(options.body);guards.push(body);return Response.json({result:'accepted'});}};}},PROBE_JOBS:{async send(job){jobs.push(job);}}};
+  config.DB={prepare(){return {bind(){return this;}};},async batch(){reads++;return [{results:[]}];}};
   const gateway=new DiscordGateway(ctx,config);await initialized;
   gateway.receive({op:0,t:'MESSAGE_CREATE',d:{...source,timestamp:new Date().toISOString()}});gateway.receive({op:0,t:'MESSAGE_CREATE',d:{...source,content:'일반 채팅',timestamp:new Date().toISOString()}});await Promise.all(waits);
-  assert.equal(jobs.length,1);assert.equal(guards.length,1);assert.doesNotMatch(JSON.stringify({jobs,guards}),/초기화있니/);
+  assert.equal(reads,1);assert.equal(jobs.length,0);assert.equal(guards.length,1);assert.doesNotMatch(JSON.stringify({jobs,guards}),/초기화있니/);
   let identified;gateway.ws={send(value){identified=JSON.parse(value);}};gateway.receive({op:10,d:{heartbeat_interval:1000}});assert.equal(identified.d.intents,33281);gateway.disconnect();
 });
 await test('질문 제한 객체가 없거나 실패하면 외부 질문 처리를 허용하지 않는다',async()=>{
