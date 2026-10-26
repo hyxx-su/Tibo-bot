@@ -1,5 +1,6 @@
 import {validId,discordApi} from './guild-settings.js';
 import {publishedTimestamp,formatKoreanTime} from './reset-time.js';
+import {noAnnouncementReplies,noAnnouncementReply} from './reset-replies.js';
 
 const dayMs=86400000;
 const koreanDay=timestamp=>new Date(timestamp+9*3600000).toISOString().slice(0,10);
@@ -41,6 +42,12 @@ export function resetQuestionJob(message,applicationId,now=Date.now()) {
   return {kind:'reset-question',guildId:message.guild_id,channelId:message.channel_id,userId:message.author.id,messageId:message.id,issuedAt:now,...resetQuestionIntent(text)};
 }
 
+export async function resetQuestionFingerprint(content) {
+  // 보이는 문장이 같은 유니코드 조합만 통일한다. 띄어쓰기·문장부호·표현은 보존한다.
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content.normalize('NFC')));
+  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
 export function resetQuestionReply({state,posts,pending},now=Date.now(),question={}) {
   if(['help','greeting'].includes(question.intent))return '초기화 관련 질문에만 답변할 수 있어. 초기화 일정이나 진행 상태가 궁금하면 물어봐!';
   if(question.intent==='manual')return '초기화를 직접 해줄 순 없어. 공지된 일정은 바로 알려줄게.';
@@ -63,7 +70,7 @@ export function resetQuestionReply({state,posts,pending},now=Date.now(),question
   const matchesScope=signal=>koreanDay(signal.analysis.status==='scheduled'&&Number.isFinite(signal.analysis.time?.timestamp)?signal.analysis.time.timestamp:signal.at)===scope;
   // 오늘·미래 질문에서도 최신 완료 공지를 건너뛰어 과거 예고를 되살리지 않는다.
   const latest=!scope?signals[0]:question.dayOffset<0?signals.find(matchesScope):signals[0]&&matchesScope(signals[0])?signals[0]:null;
-  if(!latest)return `아직 ${scopeName} 초기화 공지는 못 봤네.`;
+  if(!latest)return noAnnouncementReply(question,`아직 ${scopeName} 초기화 공지는 못 봤네.`);
   const {analysis,at}=latest;const today=koreanDay(now);
   // 최신 완료·취소 관련 언급을 건너뛰어 과거 예정을 되살리지 않는다.
   if(analysis.status==='scheduled'){
@@ -81,9 +88,9 @@ export function resetQuestionReply({state,posts,pending},now=Date.now(),question
     }
     return `${question.intent==='completed'?'아직 확인된 건 예고야.':'있지.'} ${schedule} 초기화 예정이야.`;
   }
-  if(analysis.status==='completed')return scope||koreanDay(at)===today?`${scope?scopeName:'오늘'} 초기화는 이미 끝났다는 공지가 있어. 달려보자.`:'아직 오늘 새 초기화 공지는 못 봤네.';
+  if(analysis.status==='completed')return scope||koreanDay(at)===today?`${scope?scopeName:'오늘'} 초기화는 이미 끝났다는 공지가 있어. 달려보자.`:noAnnouncementReply(question,'아직 오늘 새 초기화 공지는 못 봤네.');
   if(analysis.status==='in_progress')return now-at<=dayMs?'초기화 반영 중이라는 공지가 있어. 조금만 기다려.':'이전에는 반영 중이었는데, 지금 상태는 더 확인해야겠네.';
-  if(analysis.status==='mentioned')return now-at<=dayMs?'초기화 얘기는 있는데, 확정된 일정은 아직 못 봤네.':'아직 오늘 초기화 공지는 못 봤네.';
+  if(analysis.status==='mentioned')return now-at<=dayMs?'초기화 얘기는 있는데, 확정된 일정은 아직 못 봤네.':noAnnouncementReply(question,'아직 오늘 초기화 공지는 못 봤네.');
   return '최근 글 분석을 아직 확인 못 했어. 조금 뒤에 다시 물어봐.';
 }
 
@@ -97,7 +104,8 @@ export async function processResetQuestionJob(message,env) {
   if(message.body?.kind!=='reset-question')return false;
   const job=message.body,now=Date.now();
   const invalid=![job.guildId,job.channelId,job.userId,job.messageId].every(validId)||!Number.isFinite(job.issuedAt)||
-    (job.intent!==undefined&&!questionIntents.has(job.intent))||(job.dayOffset!==undefined&&![-1,0,1,2].includes(job.dayOffset));
+    (job.intent!==undefined&&!questionIntents.has(job.intent))||(job.dayOffset!==undefined&&![-1,0,1,2].includes(job.dayOffset))||
+    (job.replyIndex!==undefined&&(!Number.isInteger(job.replyIndex)||job.replyIndex<0||job.replyIndex>=noAnnouncementReplies.length));
   if(env.RESET_CHAT_ENABLED!=='true'||invalid||job.issuedAt>now+60000||now-job.issuedAt>120000){
     message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:env.RESET_CHAT_ENABLED!=='true'?'disabled':invalid?'invalid':'expired'}));return true;
   }
