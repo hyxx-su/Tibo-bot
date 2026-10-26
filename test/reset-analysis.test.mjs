@@ -13,11 +13,13 @@ for(const [expression,expected] of [
   ['2026-10-26T09:00:00+09:00','2026-10-26T00:00:00Z'],
   ['2026-10-26T09:00Z','2026-10-26T09:00:00Z'],
   ['in 2 hours','2026-10-25T14:00:00Z'],
+  ['within the next 3 hours','2026-10-25T15:00:00Z'],
+  ['within 45 minutes','2026-10-25T12:45:00Z'],
   ['30분 후','2026-10-25T12:30:00Z'],
   ['2026-11-01 at 1:30am PDT','2026-11-01T08:30:00Z'],
 ])await test(`시간 변환: ${expression}`,()=>assert.equal(new Date(parseResetTime(expression,published).timestamp).toISOString(),new Date(expected).toISOString()));
 
-for(const expression of ['at 9am PT','tomorrow at 9am','2026-02-30 at 9am UTC','2026-11-01 at 1:30am PT','2026-03-08 at 2:30am PT','soon','in 999 hours','2026-10-26T25:00Z','2026-10-26T09:00+14:30']){
+for(const expression of ['at 9am PT','tomorrow at 9am','2026-02-30 at 9am UTC','2026-11-01 at 1:30am PT','2026-03-08 at 2:30am PT','soon','in 999 hours','2026-10-26T25:00Z','2026-10-26T09:00+14:30','within 0 hours','within 999 hours','within the next 2 to 3 hours','by EOD PST']){
   await test(`불확실하거나 잘못된 시간을 확정하지 않는다: ${expression}`,()=>assert.equal(parseResetTime(expression,published),null));
 }
 await test('한국시간 날짜 이월을 표시한다',()=>assert.equal(formatKoreanTime(Date.parse('2026-10-26T16:00:00Z')),'2026-10-27 01:00 (한국시간, KST)'));
@@ -44,6 +46,14 @@ try{
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
     assert.match(resetNotification(post,analysis),/초기화 예상 시간 감지\*\*\n# 10월 27일 01:00/);
   });
+  await test('추론용 응답 조각은 알림과 JSON 해석에 섞지 않는다',async()=>{
+    const savedFetch=globalThis.fetch;
+    globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{thought:true,text:'internal reasoning is not an announcement'},{text:JSON.stringify(result)}]}}]});
+    try{
+      const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
+      assert.equal(analysis.status,'scheduled');assert.doesNotMatch(resetNotification(post,analysis),/internal reasoning/);
+    }finally{globalThis.fetch=savedFetch;}
+  });
   await test('reset 없는 시간 답글과 연결 본문을 함께 분석하고 기한을 표시한다',async()=>{
     const reply={id:'124',date:'Oct 25, 2026 · 3:40 AM UTC',text:'By midnight PST',context:[{id:'123',date:'Oct 25, 2026 · 3:39 AM UTC',text:'Day 20/ Rest and reset'}]};
     const saved=result;result={status:'scheduled',summary_ko:'스레드 문맥상 자정까지 초기화 예정으로 해석됩니다.',evidence:reply.context[0].text,time_expression:reply.text};
@@ -53,6 +63,20 @@ try{
   await test('모델이 만든 원문 밖 시각은 버린다',async()=>{
     result={...result,time_expression:'2026-10-30 at 10am UTC'};
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);assert.equal(analysis.time,null);assert.match(resetNotification(post,analysis),/초기화 시각 미정/);
+  });
+  await test('상대 기한은 게시 시각에서 계산하고 실행 시각처럼 안내하지 않는다',async()=>{
+    const saved=result;
+    const current={...post,text:'Codex usage resets within the next 3 hours.'};
+    result={status:'scheduled',summary_ko:'초기화 예정입니다.',evidence:current.text,time_expression:'within the next 3 hours'};
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);
+    assert.equal(analysis.time.timestamp,published+3*3600000);
+    assert.equal(analysis.time.relation,'deadline');
+    assert.match(resetNotification(current,analysis),/위 한국시간까지/);result=saved;
+  });
+  for(const status of ['mentioned','unrelated'])await test(`${status} 결과에 모델이 시간을 끼워 넣어도 예정 시각으로 쓰지 않는다`,async()=>{
+    const saved=result;result={status,summary_ko:'초기화가 확정되지 않았습니다.',evidence:post.text,time_expression:'tomorrow at 9am PT'};
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
+    assert.equal(analysis.time,null);assert.equal(analysis.time_expression,'');result=saved;
   });
   await test('원문에 없는 근거로 초기화 공지를 발송하지 않는다',async()=>{
     result={...result,evidence:'Invented announcement'};
