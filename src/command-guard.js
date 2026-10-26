@@ -21,17 +21,20 @@ export class DiscordCommandGuard {
   }
 
   async claimChat(input) {
-    if(![input?.messageId,input?.channelId,input?.userId].every(value=>typeof value==='string'&&/^\d{1,20}$/.test(value)))return new Response('Invalid question',{status:400});
+    if(![input?.messageId,input?.guildId,input?.channelId,input?.userId].every(value=>typeof value==='string'&&/^\d{1,20}$/.test(value)))return new Response('Invalid question',{status:400});
     return this.ctx.blockConcurrencyWhile(async()=>{
       const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
       const state=await this.ctx.storage.get('chat-budget')??{day,count:0,nextAt:0,seen:[]};
       state.seen=state.seen.filter(entry=>entry.expiresAt>now);
       if(state.seen.some(entry=>entry.id===input.messageId))return Response.json({result:'duplicate'});
       if(state.day!==day){state.day=day;state.count=0;}
-      if(state.count>=100||state.nextAt>now||state.seen.some(entry=>entry.acceptedAt+30000>now&&(entry.channelId===input.channelId||entry.userId===input.userId)))return Response.json({result:'limited'});
-      state.count++;state.nextAt=now+1000;state.seen.push({id:input.messageId,channelId:input.channelId,userId:input.userId,acceptedAt:now,expiresAt:now+600000});
+      const burst=state.seen.filter(entry=>entry.acceptedAt>now-10000);
+      if(state.count>=1000||burst.filter(entry=>entry.userId===input.userId).length>=8||burst.filter(entry=>entry.channelId===input.channelId).length>=30)return Response.json({result:'limited'});
+      const previous=state.seen.filter(entry=>entry.guildId===input.guildId&&entry.channelId===input.channelId&&entry.userId===input.userId&&entry.acceptedAt>now-300000);
+      const repeatCount=previous.length;
+      state.count++;state.seen.push({id:input.messageId,guildId:input.guildId,channelId:input.channelId,userId:input.userId,acceptedAt:now,expiresAt:now+600000});
       await this.ctx.storage.put('chat-budget',state);
-      return Response.json({result:'accepted'});
+      return Response.json({result:'accepted',repeatCount});
     });
   }
 }
@@ -39,11 +42,12 @@ export class DiscordCommandGuard {
 export async function claimResetQuestion(env,job) {
   if(!env.COMMAND_GUARD)throw new Error('Question guard missing');
   const stub=env.COMMAND_GUARD.get(env.COMMAND_GUARD.idFromName('discord-reset-chat'));
-  const response=await stub.fetch('https://guard.internal/chat-claim',{method:'POST',body:JSON.stringify({messageId:job.messageId,channelId:job.channelId,userId:job.userId})});
+  const response=await stub.fetch('https://guard.internal/chat-claim',{method:'POST',body:JSON.stringify({messageId:job.messageId,guildId:job.guildId,channelId:job.channelId,userId:job.userId})});
   if(!response.ok)throw new Error('Question guard unavailable');
-  const {result}=await response.json();
+  const {result,repeatCount=0}=await response.json();
   if(!['accepted','duplicate','limited'].includes(result))throw new Error('Invalid question guard result');
-  return result;
+  if(!Number.isInteger(repeatCount)||repeatCount<0||repeatCount>1000)throw new Error('Invalid question repetition');
+  return {result,repeatCount};
 }
 
 export async function claimVerification(env,id) {

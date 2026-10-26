@@ -115,7 +115,8 @@ export class DiscordGateway {
     }else if(payload.op===0&&payload.t==='MESSAGE_CREATE'&&this.env.RESET_CHAT_ENABLED==='true'){
       const job=resetQuestionJob(payload.d,this.env.DISCORD_APPLICATION_ID);
       if(job)this.ctx.waitUntil((async()=>{
-        if(await claimResetQuestion(this.env,job)==='accepted')await dispatchResetQuestion(job,this.env);
+        const claim=await claimResetQuestion(this.env,job);
+        if(claim.result==='accepted')await dispatchResetQuestion({...job,repeatCount:claim.repeatCount},this.env);
       })().catch(()=>log('reset-question-dispatch-failed')));
     }else if(payload.op===0&&(payload.t==='READY'||payload.t==='RESUMED')){
       if(payload.t==='READY'){
