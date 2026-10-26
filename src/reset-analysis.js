@@ -54,18 +54,26 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
 - type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
 - title_ko: 현재 글의 내용을 한국어 제목 60자 이내로 요약한다. 링크·Markdown·멘션은 넣지 않는다. 초기화와 무관한 글도 실제 주제를 제목으로 쓰며, 연결 문맥을 새 공지로 바꾸지 않는다. 본문이 비어 있으면 “이미지·미디어 게시글”로 쓴다.
-- summary_ko: 초기화와 무관한 글도 “무관한 글”이라고만 쓰지 말고 실제 내용을 요약한다. “초기화와 무관하다” 같은 분류 결과나 분석 과정은 요약에 덧붙이지 않는다. 본문이 없으면 첨부 게시글이라는 사실만 쓰며 보이지 않는 이미지를 설명하지 않는다. 작성자가 안내한 내용을 한국어 한 문장으로 요약한다. 대상·범위·예정/진행/완료·부정·불확실성을 보존한다. 개별 사용자 계정의 실제 반영을 직접 검증했다고 쓰지 않는다. 완료 시각이나 기존 예상보다 빠르다는 비교를 만들어 쓰지 않는다.
+- bullets: 한국어 핵심 요약 배열. 정보가 충분한 일반 글은 2~4개, 초기화 관련 글은 2~3개로 정리한다. 짧은 글·단순 답변은 1개만 쓴다. 개수를 채우려고 반복하거나 없는 정보를 추가하지 않는다. 각 항목은 180자 이내의 독립된 문장이고, 글머리 기호·Markdown·링크는 넣지 않는다.
+- 가장 중요한 사실을 첫 항목에 쓴다. 초기화 관련 글은 초기화의 대상·현재 상태를 첫 항목에 놓고, 다른 항목에는 원문에 있는 수치·조건·범위·변경 사항을 중요도순으로 담는다. 원인·영향·후속 조치도 원문에 있을 때만 쓴다. 동일한 사실을 표현만 바꿔 반복하지 않는다.
+- 요약은 현재 글의 사실만 전달하며 연결 문맥은 생략된 대상을 해석할 때만 사용한다. 현재 글의 정정·부정·취소가 과거 예고보다 우선한다. 취소·연기된 과거 기한을 유효한 예정 시각처럼 쓰지 않는다. “초기화와 무관하다” 같은 분류 설명은 요약에 넣지 않는다.
+- 수치·고유명사·대상·조건·예정/진행/완료·부정·불확실성을 보존한다. 초기화 시간을 직접 환산하지 않는다. 원문에 없는 실제 반영 시각, 기존 예상보다 빠르다는 비교, 계정별 적용 차이를 추가하지 않는다. 본문 없는 미디어 글은 첨부 사실만 1개로 안내하고 이미지 내용을 추측하지 않는다.
 - evidence: 관련 상태라면 현재 글 또는 context 한 글에 실제 존재하는 연속된 구절을 그대로 복사한다. completed/in_progress는 반드시 현재 text의 구절을 사용한다. 부정·일부·진행 중이라는 제한을 잘라 반대 의미의 근거로 제시하지 않는다. unrelated는 빈 문자열이다.
 - time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
       contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[]})}]}],
-      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','reset_type','type_evidence','title_ko','summary_ko','evidence','time_expression']}},
+      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},bullets:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','reset_type','type_evidence','title_ko','bullets','evidence','time_expression']}},
     }),
   });
   if(!response.ok){await response.body?.cancel();throw new Error('Reset analysis HTTP '+response.status);}
   const data=JSON.parse(await readLimitedText(response,65536));
   const text=(data.candidates?.[0]?.content?.parts??[]).filter(p=>!p.thought).map(p=>p.text??'').join('');
   const result=JSON.parse(text);
+  if(result.bullets!==undefined){
+    result.bullets=validatedBullets(result.bullets);
+    // 기존 분석 조회·평가와의 호환용 한 문장은 첫 핵심 항목에서 파생한다.
+    result.summary_ko=result.bullets[0];
+  }
   if(!statuses.includes(result.status)||['summary_ko','evidence','time_expression'].some(k=>typeof result[k]!=='string'))throw new Error('Invalid reset analysis');
   if(result.title_ko!==undefined&&typeof result.title_ko!=='string')throw new Error('Invalid post title');
   const sources=[post,...(post.context??[])];
@@ -83,6 +91,12 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   return {...result,title_ko:result.title_ko?.trim().slice(0,60)??'',reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
 }
 
+function validatedBullets(value) {
+  if(!Array.isArray(value)||value.length<1||value.length>4||value.some(item=>typeof item!=='string'||!item.trim()||item.trim().length>180))throw new Error('Invalid summary bullets');
+  // 형식만 다른 같은 문장이 알림 항목 수를 부풀리지 않게 한다.
+  return [...new Set(value.map(item=>item.normalize('NFC').trim().replace(/\s+/gu,' ')))];
+}
+
 // 원문 링크는 모델 출력이 아니라 수집한 현재 글 ID로만 구성한다.
 export function postNotification(post,analysis) {
   const url=`https://x.com/thsottiaux/status/${post.id}`;
@@ -92,10 +106,10 @@ export function postNotification(post,analysis) {
   const titles={scheduled:`${target} 예정`,in_progress:`${target} 진행 중`,completed:`${target} 완료 안내`,mentioned:`${target} 관련 언급`};
   const hasText=typeof post.text==='string'&&post.text.trim();
   const title=related?titles[analysis.status]:hasText?(analysis.title_ko?.trim()||'Tibo 새 게시글'):'이미지·미디어 게시글';
-  const summary=!hasText&&!related?'Tibo가 이미지·미디어를 첨부한 게시글을 올렸습니다.':analysis.summary_ko?.trim();
-  if(!summary)return url;
+  const bullets=!hasText&&!related?['Tibo가 이미지·미디어를 첨부한 게시글을 올렸습니다.']:analysis.bullets!==undefined?validatedBullets(analysis.bullets):typeof analysis.summary_ko==='string'&&analysis.summary_ko.trim()?[analysis.summary_ko.trim().slice(0,600)]:[];
+  if(!bullets.length)return url;
   const lines=related?['## ⚠️ 초기화 관련 내용 감지 ⚠️']:[];
-  lines.push(`**[${discordPlainText(title.slice(0,60))}](<${url}>)**`,`- ${discordPlainText(summary.slice(0,600))}`);
+  lines.push(`**[${discordPlainText(title.slice(0,60))}](<${url}>)**`,...bullets.map(item=>`- ${discordPlainText(item)}`));
   // 게시 시각과 과거 예고를 현재 예정 시각으로 표시하지 않는다.
   const timestamp=analysis.status==='scheduled'?analysis.time?.timestamp:null;
   const local=Number.isFinite(timestamp)?formatKoreanTime(timestamp).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
