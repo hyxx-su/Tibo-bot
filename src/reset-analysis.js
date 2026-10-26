@@ -55,7 +55,8 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
 - reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
 - type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
-- title_ko: 현재 글의 내용을 한국어 제목 60자 이내로 요약한다. 링크·Markdown·멘션은 넣지 않는다. 초기화와 무관한 글도 실제 주제를 제목으로 쓰며, 연결 문맥을 새 공지로 바꾸지 않는다. 본문이 비어 있으면 “이미지·미디어 게시글”로 쓴다.
+- title_ko: 초기화 관련 여부와 관계없이 현재 게시글의 핵심 사건을 한국어 60자 이내의 구체적인 기사 제목으로 요약한다. 단순 상태 라벨(“초기화 관련 언급”, “저장형 리셋 지급 진행 중”)로 글 전체를 대신하지 않는다. 제품·기능 발표와 사용자 수 달성, 초기화권 지급 등 여러 주요 소식이 함께 있으면 중요한 소식을 함께 담는다. 핵심 고유명사와 수치는 원문 그대로 보존하고 사소한 인사말은 제외한다.
+- 제목의 예정·진행·완료·취소·부정을 현재 원문과 일치시킨다. 지급 진행을 지급 완료로, 저장형 초기화권 지급을 현재 사용량 초기화로 바꾸지 않는다. 원문에 없는 “예상보다 일찍”, 실제 적용 시각, 제품·수치는 넣지 않는다. 연결 문맥은 현재 답글의 생략된 대상을 이해할 때만 쓰고 이전 글의 소식을 현재 글의 제목으로 복사하지 않는다. 짧은 글은 짧고 정확한 제목으로 쓴다. 링크·Markdown·멘션은 넣지 않는다. 본문이 비어 있으면 “이미지·미디어 게시글”로 쓴다.
 - bullets: 한국어 핵심 요약 배열. 정보가 충분한 일반 글은 2~4개, 초기화 관련 글은 2~3개로 정리한다. 짧은 글·단순 답변은 1개만 쓴다. 개수를 채우려고 반복하거나 없는 정보를 추가하지 않는다. 각 항목은 180자 이내의 독립된 문장이고, 글머리 기호·Markdown·링크는 넣지 않는다.
 - 가장 중요한 사실을 첫 항목에 쓴다. 초기화 관련 글은 초기화의 대상·현재 상태를 첫 항목에 놓고, 다른 항목에는 원문에 있는 수치·조건·범위·변경 사항을 중요도순으로 담는다. 원인·영향·후속 조치도 원문에 있을 때만 쓴다. 동일한 사실을 표현만 바꿔 반복하지 않는다.
 - 요약은 현재 글의 사실만 전달하며 연결 문맥은 생략된 대상을 해석할 때만 사용한다. 현재 글의 정정·부정·취소가 과거 예고보다 우선한다. 취소·연기된 과거 기한을 유효한 예정 시각처럼 쓰지 않는다. “초기화와 무관하다” 같은 분류 설명은 요약에 넣지 않는다.
@@ -107,7 +108,9 @@ export function postNotification(post,analysis) {
   const target=analysis.reset_type==='banked'?'저장형 리셋 지급':'초기화';
   const titles={scheduled:`${target} 예정`,in_progress:`${target} 진행 중`,completed:`${target} 완료 안내`,mentioned:`${target} 관련 언급`};
   const hasText=typeof post.text==='string'&&post.text.trim();
-  const title=related?titles[analysis.status]:hasText?(analysis.title_ko?.trim()||'Tibo 새 게시글'):'이미지·미디어 게시글';
+  const generatedTitle=typeof analysis.title_ko==='string'?analysis.title_ko.trim():'';
+  // 이전 저장 결과에 제목이 없을 때만 상태 라벨로 호환한다.
+  const title=!hasText&&!related?'이미지·미디어 게시글':generatedTitle||(related?titles[analysis.status]:'Tibo 새 게시글');
   const bullets=!hasText&&!related?['Tibo가 이미지·미디어를 첨부한 게시글을 올렸습니다.']:analysis.bullets!==undefined?validatedBullets(analysis.bullets):typeof analysis.summary_ko==='string'&&analysis.summary_ko.trim()?[analysis.summary_ko.trim().slice(0,600)]:[];
   if(!bullets.length)return url;
   const lines=related?['**## :warning: 초기화 관련 내용 감지 :warning:**']:[];
