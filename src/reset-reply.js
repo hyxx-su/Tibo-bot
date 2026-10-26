@@ -23,10 +23,10 @@ export function resetQuestionIntent(value) {
   // 문장 전체를 모델에 보내지 않고 주제·의문 표현만 판별한다. 생략형은 짧은 질문으로 제한한다.
   const short=text.replace(/^(?:(?:그럼|그래서|혹시|진짜|오늘|내일|모레|어제|은|는|아직|벌써|이제|다|좀|또|대체|도대체|도|지금|대략|이번엔|이번에는))*/,'');
   if(!topic&&/(밥|점심|저녁|아침|학교|숙제|날씨|게임|택배|생일|영화)/.test(text))return result('help');
-  if(!topic&&!/^(언제|몇시|몇분|몇시간|얼마나|얼마|끝|완료|됐|했|되었|남|있|없|하나|해|할|진행|반영|해준|해줄)/.test(short))return result('help');
+  if(!topic&&!/^(언제|몇시|몇분|몇시간|얼마나|얼마|끝|완료|됐|됨|했|되었|남|있|없|하나|해|할|진행|반영|해준|해줄)/.test(short))return result('help');
   if(/(얼마|몇분|몇시간|남았|남음|남은|남아)/.test(text))return result('remaining');
-  if(/(언제|몇시|시간|시각)/.test(text))return result('timing');
-  if(/(끝|완료|됐|되었|했|다됨|함$)/.test(text))return result('completed');
+  if(/(언제|몇시|시간|시각|날짜)/.test(text))return result('timing');
+  if(/(끝|완료|됐|됨|되었|했|함$)/.test(text))return result('completed');
   if(topic||/(있|없|하나|해|할|진행|반영)/.test(short))return result('status');
   return result('help');
 }
