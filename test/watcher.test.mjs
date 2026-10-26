@@ -34,7 +34,7 @@ const mf=new Miniflare({
       else if(input.text.includes('will reset tomorrow at 9am PT.')){status='scheduled';time_expression='tomorrow at 9am PT';}
       else if(input.text==='By midnight PST'&&contextHasReset){status='scheduled';time_expression=input.text;}
       else if(input.text==='Usage allowances were replenished for everyone.'||input.text==='A banked reset has been credited to every account.')status='completed';
-      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status,reset_type:status==='unrelated'?'unknown':input.text.includes('banked')?'banked':'regular',type_evidence:status==='unrelated'?'':input.text,title_ko:'새 소식',summary_ko:status==='unrelated'?'새 소식을 전합니다.':'Tibo가 사용량 초기화 상태를 안내했습니다.',evidence:status==='unrelated'?'':input.text,time_expression})}]}}],usageMetadata:{totalTokenCount:100}});
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({...(input.text==='함께 올라온 일반 글'?{bullets:['첫 번째 합성 소식입니다.','두 번째 합성 소식입니다.']}:{}),status,reset_type:status==='unrelated'?'unknown':input.text.includes('banked')?'banked':'regular',type_evidence:status==='unrelated'?'':input.text,title_ko:'새 소식',summary_ko:status==='unrelated'?'새 소식을 전합니다.':'Tibo가 사용량 초기화 상태를 안내했습니다.',evidence:status==='unrelated'?'':input.text,time_expression})}]}}],usageMetadata:{totalTokenCount:100}});
     }
     if(url.hostname==='discord.com'){
       const body=await request.json();calls.push({kind:'discord',body,status:discordStatus,authorization:request.headers.get('Authorization'),path:url.pathname,method:request.method});
@@ -127,7 +127,7 @@ try{
     await poll();await waitFor(async()=>await settled('113')&&await settled('112')&&await settled('111'));await waitPoll();
     await poll();await waitPoll();
     for(const id of ['111','112','113']){
-      const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.ok(sent[0].body.content.endsWith('\nhttps://x.com/thsottiaux/status/'+id));assert.match(sent[0].body.content,id==='111'?/새 소식/:/이미지·미디어 게시글/);assert.doesNotMatch(sent[0].body.content,/⚠️/);assert.equal((sent[0].body.flags??0)&4,0);
+      const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.ok(sent[0].body.content.endsWith('\nhttps://x.com/thsottiaux/status/'+id));assert.match(sent[0].body.content,id==='111'?/새 소식/:/이미지·미디어 게시글/);if(id==='111'){assert.ok(sent[0].body.content.includes('\n- 첫 번째 합성 소식입니다.\n- 두 번째 합성 소식입니다.'));assert.equal(JSON.parse((await row(id)).analysis_json).bullets.length,2);}assert.doesNotMatch(sent[0].body.content,/⚠️/);assert.equal((sent[0].body.flags??0)&4,0);
     }
     assert.equal((await row('112')).body,'');assert.equal(calls.filter(c=>c.kind==='ai').length,aiBefore+3);assert.equal(calls.filter(c=>c.kind==='ai'&&c.text==='').length,2);
   });
