@@ -129,6 +129,12 @@ await test('질문 일일 상한은 재시작에도 유지하고 옛 검증 예�
   assert.equal((await f.claim('100')).result,'limited');assert.equal((await guardFixture(Object.fromEntries(f.state)).claim('101')).result,'limited');assert.deepEqual(f.state.get('budget'),{untouched:true});
   f.state.set('chat-budget',{...budget,day:'2000-01-01'});assert.equal((await f.claim('102')).result,'accepted');assert.equal(f.state.get('chat-budget').count,1);
 });
+await test('채널 과다 호출과 여러 서버의 기록 크기를 제한하고 만료 기록은 비운다',async()=>{
+  const f=guardFixture();for(let i=0;i<30;i++)assert.equal((await f.claim(String(100+i),'30',String(200+i))).result,'accepted');assert.equal((await f.claim('999','30','999')).result,'limited');
+  const seen=Array.from({length:500},(_,i)=>({id:String(i),guildId:'20',channelId:'30',userId:'90',acceptedAt:Date.now()-20000,expiresAt:Date.now()+10000}));
+  const full=guardFixture({'chat-budget':{day:new Date().toISOString().slice(0,10),count:500,seen}});assert.equal((await full.claim('999','31','91')).result,'limited');
+  full.state.get('chat-budget').seen.forEach(entry=>entry.expiresAt=Date.now()-1);assert.equal((await full.claim('999','31','91')).result,'accepted');
+});
 await test('Gateway는 중복 제한 후 즉시 응답하고 정상 질문을 Queue에 보내지 않는다',async()=>{
   let initialized;const waits=[],jobs=[],guards=[];let reads=0;
   const ctx={storage:{async get(){return undefined;},async put(){}},blockConcurrencyWhile(fn){initialized=fn();},waitUntil(p){waits.push(p);}};
