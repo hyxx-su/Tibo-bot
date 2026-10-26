@@ -9,7 +9,12 @@ export async function discordApi(env,path,options={}) {
   const response=await fetch('https://discord.com/api/v10'+path,{...options,redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000)});
   if(!response.ok){
     const error=new Error('Discord API failed');error.status=response.status;
-    if(response.status===404){
+    if(response.status===429){
+      const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));
+      const delays=[data?.retry_after,response.headers.get('Retry-After')].map(Number).filter(value=>Number.isFinite(value)&&value>0);
+      // 더 긴 대기 지시를 우선하며 응답 원문이나 토큰은 오류에 담지 않는다.
+      error.retryAfter=delays.length?Math.ceil(Math.max(...delays)):60;
+    }else if(response.status===404){
       const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));
       if(data.code===10003)error.discordCode=10003;
     }else await response.body?.cancel();

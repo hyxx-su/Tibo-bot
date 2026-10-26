@@ -133,7 +133,10 @@ export async function processResetQuestionJob(message,env) {
     message.ack();
     console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-replied',dispatchAgeMs:Math.max(0,now-job.issuedAt),databaseMs,processingMs:Date.now()-now}));
   }catch(error){
-    if(![400,401,403,404].includes(error.status)&&message.attempts<2)message.retry({delaySeconds:30});
+    const delaySeconds=error.status===429?Math.max(1,error.retryAfter??60):30;
+    const transient=error.status===undefined||error.status===429||error.status>=500;
+    // 제한을 일찍 재시도하지 않고, 기한 안에 답할 수 없는 질문은 Queue에 다시 넣지 않는다.
+    if(transient&&message.attempts<2&&Date.now()+delaySeconds*1000<job.issuedAt+120000)message.retry({delaySeconds});
     else message.ack();
     console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-failed',httpStatus:error.status??null}));
   }
