@@ -35,9 +35,11 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - in_progress: banked는 초기화권 배포가 진행 중임을 뜻한다. regular는 초기화가 시작되어 적용 중이거나 일부 계정만 반영됐고 나머지가 남아 있다. 'reset button pressed' 뒤 'still propagating'이 있으면 이 상태다.
 - completed: banked는 초기화권 지급 완료를 명시하며 현재 사용량 초기화로 요약하지 않는다. regular는 현재 사용량 초기화의 전체 반영 완료를 작성자가 명확히 알린다. 사용량을 이미 초기화했다는 사실이나 전체 반영 완료의 명시적 근거가 필요하다. 'that’s a reset!', 'a reset for you' 같은 단순 선언만으로 완료를 확정하지 않는다. 같은 글에서 다른 기능을 이미 배포했다는 과거형도 초기화 완료 근거가 아니다. 단순 선언만 있고 실행 상태·기한이 없으면 mentioned, 연결된 후속 글이 미래 기한을 설명하면 scheduled다. 일부 플랜·지역·계정만 완료됐거나 전체 적용 범위가 불분명하면 completed가 아니다. 사용량이 모두 복구되었다는 표현은 reset 단어 없이도 완료 근거가 될 수 있다.
 - mentioned: 사용량 초기화와 관련되지만 새 예정·진행·전체 완료가 확정되지 않는다. 초기화 질문·요청·취소·과거 회상, 일부 범위만 완료되고 나머지 상태가 불명확한 안내는 여기에 포함한다. 초기화권 지급의 예정/진행/완료가 명시되면 banked 유형과 해당 상태를 사용한다. 초기화권의 단순 언급·질문·요청만 여기에 포함한다.
+- 취소·연기 우선 규칙: 사용량 초기화 계획을 취소·철회·연기하는 글도 초기화 관련이다. 실행하지 않게 됐다는 이유로 unrelated로 분류하지 않는다. 새로 확정한 기한이 없으면 mentioned이며 time_expression은 빈 문자열이다. 원문의 취소된 시각은 요약에서 취소된 계획임을 명시할 때만 언급한다.
 - unrelated: 사용량 초기화와 무관하거나, 대상이 불명확하고 연결 문맥도 없다. 빈 본문만 있는 미디어 글, 단순 감탄·농담도 근거가 없으면 이 상태다.
 
 문맥 해석 예시
+- 'The usage reset planned for tomorrow at 10am PST is cancelled. No replacement date has been announced.' → mentioned, time_expression=''. 'The reset is postponed; we have no new date.' → mentioned. 현재 실행할 예정이 없다는 것과 초기화 관련 내용이 없다는 것은 다르다.
 - 'One banked reset has been credited to each account. Use it later.' → banked + completed. 'We will credit a banked reset tomorrow.' → banked + scheduled. 'Do we get a banked reset?' → banked + mentioned.
 - 현재 'Finished.' + 앞선 사용량 초기화 진행 공지 → completed. 같은 말이라도 앞선 내용이 에디터 테마 배포라면 unrelated. 연결 문맥이 없는 'Finished.'도 unrelated.
 - 현재 'Still propagating.' + 초기화 문맥 → in_progress. 예전 예정 시각이 아직 오지 않았어도 현재의 명확한 완료 안내를 우선한다.
