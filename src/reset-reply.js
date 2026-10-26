@@ -100,8 +100,7 @@ export function resetQuestionReply({state,posts,pending},now=Date.now(),question
 
 export function repeatQuestionReply(content,count=0) {
   if(!Number.isInteger(count)||count<=0)return content;
-  const endings=['아까도 물어봤지? 😏','또 확인했네. 기다리는 마음은 알지.','계속 확인해도 괜찮아. 새 공지가 기준이야.'];
-  return content+' '+endings[Math.min(count-1,endings.length-1)];
+  return content+' 아까도 물어봤지? 😏';
 }
 
 export async function processResetQuestionJob(message,env) {
