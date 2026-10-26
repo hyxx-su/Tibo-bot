@@ -40,6 +40,6 @@ test('여러 항목의 서식과 링크를 보호하고 원문 URL을 길이 제
   assert.doesNotMatch(unsafe,/evil.invalid/);assert.ok(unsafe.includes('\\<@123\\>'));assert.ok(unsafe.includes('\\*\\*위조\\*\\*'));assert.equal(unsafe.split('\n').length,4);
 });
 test('여러 항목에도 관련 경고와 검증된 예정 시각만 한 번 표시한다',()=>{
-  const content=postNotification(post,{...base,status:'scheduled',reset_type:'banked',bullets:['저장형 초기화권을 지급할 예정입니다.','유료 계정이 대상입니다.'],time:{timestamp:Date.parse('2026-10-27T08:00:00Z'),relation:'deadline'}});
+  const content=postNotification(post,{...base,status:'scheduled',title_ko:'저장형 리셋 지급 예정',reset_type:'banked',bullets:['저장형 초기화권을 지급할 예정입니다.','유료 계정이 대상입니다.'],time:{timestamp:Date.parse('2026-10-27T08:00:00Z'),relation:'deadline'}});
   assert.ok(content.startsWith('**## :warning: 초기화 관련 내용 감지 :warning:**'));assert.match(content,/저장형 리셋 지급 예정/);assert.match(content,/10월 27일 17:00까지/);assert.equal(content.split('\n').filter(line=>line.startsWith('- ')).length,2);
 });

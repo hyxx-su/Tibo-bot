@@ -53,7 +53,7 @@ for(const status of ['scheduled','in_progress','completed','mentioned','unrelate
   const lines=content.split('\n');const offset=status==='unrelated'?0:1;
   assert.equal(lines[0].startsWith('**## :warning:'),status!=='unrelated');
   assert.match(lines[offset],/^\*\*\[.+\]\(<https:\/\/x.com\/thsottiaux\/status\/123>\)\*\*$/);
-  assert.equal(lines[offset+1],'- 새 기능을 안내합니다.');assert.equal(lines.at(-1),card.url);
+  assert.equal(lines[offset],'**[새 기능 안내](<https://x.com/thsottiaux/status/123>)**');assert.equal(lines[offset+1],'- 새 기능을 안내합니다.');assert.equal(lines.at(-1),card.url);
   assert.equal(lines.length,offset+3);
 });
 test('미디어 글과 분석 실패·기존 빈 요약은 내용을 만들어내지 않는다',()=>{
@@ -65,4 +65,18 @@ test('미디어 글과 분석 실패·기존 빈 요약은 내용을 만들어�
 test('제목도 모델이 만든 링크·줄바꿈·멘션을 실행하지 않는다',()=>{
   const content=postNotification(post,{status:'unrelated',title_ko:'[위조](https://evil.invalid)\n<@123>',summary_ko:'요약'});
   assert.doesNotMatch(content,/evil.invalid/);assert.equal(content.split('\n').length,3);assert.ok(content.includes('\\<@123\\>'));
+});
+
+test('관련 글 제목에 복수 핵심 소식과 진행 표현을 보존한다',()=>{
+  const title='새 모델 출시·사용자 1천만 명 달성과 저장형 초기화권 지급 진행';
+  const content=postNotification(post,{status:'in_progress',reset_type:'banked',title_ko:title,bullets:['저장형 초기화권을 지급 중입니다.','새 모델 출시와 사용자 기록을 안내했습니다.']});
+  assert.equal(content.split('\n')[1],`**[${title}](<https://x.com/thsottiaux/status/123>)**`);
+  assert.doesNotMatch(content,/지급 완료/);
+});
+test('제목 없는 과거 관련 분석은 상태별 제목으로 호환한다',()=>{
+  for(const title_ko of [undefined,'','  '])assert.match(postNotification(post,{status:'in_progress',reset_type:'banked',title_ko,summary_ko:'지급 진행 안내입니다.'}),/\*\*\[저장형 리셋 지급 진행 중\]/);
+});
+test('관련 글의 생성 제목도 외부 링크·멘션·줄바꿈을 실행하지 않는다',()=>{
+  const content=postNotification(post,{status:'mentioned',title_ko:'[가짜](https://evil.invalid)\n<@123>',summary_ko:'관련 언급입니다.'});
+  assert.doesNotMatch(content,/evil.invalid/);assert.ok(content.includes('\\<@123\\>'));assert.equal(content.split('\n').length,4);
 });
