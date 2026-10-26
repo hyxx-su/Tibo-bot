@@ -38,6 +38,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 'and reset', 'reset day', 'a reset for everyone' 같은 명사형 선언 뒤에 'Enjoy'가 있어도 완료 동작·상태의 근거는 아니다. 실행 시점이 없는 선언은 mentioned로 보류한다. 반면 초기화를 가리키는 'It is done', 'has been applied', 'fully propagated'는 완료 근거다. 단순히 독자에게 즐기라고 했다는 이유로 completed로 승격하지 않는다.
 - 완료 공지에 반드시 all/everyone이라는 단어가 있어야 하는 것은 아니다. 초기화를 완료했다는 명시적 문장이 있고 일부만 적용했다는 제한이 없다면 완료 안내로 해석한다. 수사적인 질문이나 농담이 앞에 있어도 뒤의 명확한 완료 문장을 무시하지 않는다. 반대로 실제 완료 여부를 묻기만 하는 질문에는 이 규칙을 적용하지 않는다.
 - Tibo의 일일 업데이트에서 'Day 7/ More to come… and a reset.'처럼 reset을 선언하면 사용량 초기화 관련 mentioned다. 이런 선언을 비유적인 주변 문장 때문에 무관한 요리·잡담으로 지우거나, 반대로 완료로 확대하지 않는다. 비밀번호·기기 등 다른 초기화 대상이 명시된 경우와 앞서 설명한 'Rest and reset'의 휴식 중의성은 별도로 구분한다.
+- 제품명이 매번 반복되지 않아도 Tibo가 기능 업데이트와 함께 독자에게 'that is a reset for you'라고 선언하면 사용량 초기화 관련 mentioned다. 그 직접 연결된 후속 글이 'Landing tomorrow before 8am PST with another improvement.'라면 초기화의 미래 기한을 안내하는 scheduled다. 앞선 기능 배포가 완료되었다거나 후속 글에 improvement가 있다는 이유로 초기화 선언을 버리지 않는다. 새로운 기능의 출시 일정만 있고 앞선 초기화 선언이 없는 경우는 unrelated다.
 
 출력 규칙
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
