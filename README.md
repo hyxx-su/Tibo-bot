@@ -28,7 +28,7 @@ https://x.com/thsottiaux/status/POST_ID
 초기화 관련 글은 맨 위에 경고 제목을 붙입니다. 예정·진행·완료·단순 언급과 저장형 지급을 구분한 제목을 사용하며 완료 글도 이 텍스트 형식으로 보냅니다.
 
 ```md
-## ⚠️ 초기화 관련 내용 감지 ⚠️
+**## :warning: 초기화 관련 내용 감지 :warning:**
 **[저장형 리셋 지급 진행 중](<https://x.com/thsottiaux/status/POST_ID>)**
 - 모든 유료 계정에 저장형 초기화권을 불러오는 중이라고 안내합니다.
 https://x.com/thsottiaux/status/POST_ID
