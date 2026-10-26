@@ -29,7 +29,8 @@ export class DiscordCommandGuard {
       if(state.seen.some(entry=>entry.id===input.messageId))return Response.json({result:'duplicate'});
       if(state.day!==day){state.day=day;state.count=0;}
       const burst=state.seen.filter(entry=>entry.acceptedAt>now-10000);
-      if(state.count>=1000||burst.filter(entry=>entry.userId===input.userId).length>=8||burst.filter(entry=>entry.channelId===input.channelId).length>=30)return Response.json({result:'limited'});
+      // 여러 서버가 동시에 호출해도 한 저장 값의 크기 제한을 넘지 않게 기록 수를 제한한다.
+      if(state.count>=1000||state.seen.length>=500||burst.filter(entry=>entry.userId===input.userId).length>=8||burst.filter(entry=>entry.channelId===input.channelId).length>=30)return Response.json({result:'limited'});
       const previous=state.seen.filter(entry=>entry.guildId===input.guildId&&entry.channelId===input.channelId&&entry.userId===input.userId&&entry.acceptedAt>now-300000);
       const repeatCount=previous.length;
       state.count++;state.seen.push({id:input.messageId,guildId:input.guildId,channelId:input.channelId,userId:input.userId,acceptedAt:now,expiresAt:now+600000});
