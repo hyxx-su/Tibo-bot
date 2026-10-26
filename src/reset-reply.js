@@ -1,13 +1,13 @@
 import {validId,discordApi} from './guild-settings.js';
 import {publishedTimestamp,formatKoreanTime} from './reset-time.js';
-import {noAnnouncementReplies,noAnnouncementReply} from './reset-replies.js';
+import {noAnnouncementReplies,noAnnouncementReply,manualResetReply} from './reset-replies.js';
 
 const dayMs=86400000;
 const koreanDay=timestamp=>new Date(timestamp+9*3600000).toISOString().slice(0,10);
 const questionIntents=new Set(['status','timing','remaining','completed','help','greeting','manual','personal']);
 
 export function resetQuestionIntent(value) {
-  const text=value.toLowerCase().replace(/[\s,.!?？!~:ㅋㅎㅠㅜ]/g,'');
+  const text=value.toLowerCase().replace(/[\s,.!?？!~:ㅋㅎㅠㅜᄏ휴ᅮ]/g,'').replace(/쫌/g,'좀');
   const days=[...text.matchAll(/(오늘|내일|모레|어제)/g)].map(match=>({오늘:0,내일:1,모레:2,어제:-1})[match[1]]);
   const dayOffset=days[0];
   const result=intent=>({intent,...(dayOffset===undefined?{}:{dayOffset})});
@@ -16,13 +16,17 @@ export function resetQuestionIntent(value) {
   if(/(컴퓨터|휴대폰|핸드폰|윈도우|공장|비밀번호|설정|버튼|파일|기기|명령|프롬프트|지시|멘션|http|<@)/.test(text))return result('help');
   if(/(내계정|내사용량|내한도|내쿼터)/.test(text))return result('personal');
   const topic=/(초기화|리셋|reset|사용량|한도|쿼터)/.test(text);
-  if(topic&&/(해줘|해주라|해줄래|시켜|해달라|실행해)/.test(text)&&!/(알려|설명|언제|몇시|시간)/.test(text))return result('manual');
+  const asksForInformation=/(언제|몇시|몇분|몇시간|얼마|시간|시각|일정|예정|계획|소식|공지|상태|알려|설명|맞아|맞지|했|됐|끝|완료|안해|안하|안줘|왜|진행|반영)/.test(text);
+  const asksToReset=/(줘|주라|줘라|주세요|주세[요욤용]|주셈|쥬라|주삼|줄래|주면|달라|내놔|시켜|실행해|풀어|부탁|제발|해라|해주|해줄|해봐|ㄱㄱ|ᄀᄀ|ㅈㅂ|ᄌᄇ|가자|드가자|원해|하고싶|해$|좀(?:요|욤|용)?$)/.test(text);
+  // 부탁·요구와 시각 질문을 구분한다. “언제 해줘?”는 일정 질문이며 실행 약속을 만들지 않는다.
+  if(topic&&asksToReset&&!asksForInformation)return result('manual');
   // 문장 전체를 모델에 보내지 않고 주제·의문 표현만 판별한다. 생략형은 짧은 질문으로 제한한다.
-  const short=text.replace(/^(?:(?:그럼|그래서|혹시|진짜|오늘|내일|모레|어제|은|는|아직|벌써|이제|다|좀|또))*/,'');
-  if(!topic&&!/^(언제|몇시|몇분|몇시간|얼마나|얼마|끝|완료|됐|했|되었|남|있|없|하나|해|할|진행|반영)/.test(short))return result('help');
+  const short=text.replace(/^(?:(?:그럼|그래서|혹시|진짜|오늘|내일|모레|어제|은|는|아직|벌써|이제|다|좀|또|대체|도대체|도|지금|대략|이번엔|이번에는))*/,'');
+  if(!topic&&/(밥|점심|저녁|아침|학교|숙제|날씨|게임|택배|생일|영화)/.test(text))return result('help');
+  if(!topic&&!/^(언제|몇시|몇분|몇시간|얼마나|얼마|끝|완료|됐|했|되었|남|있|없|하나|해|할|진행|반영|해준|해줄)/.test(short))return result('help');
   if(/(얼마|몇분|몇시간|남았|남음|남은|남아)/.test(text))return result('remaining');
   if(/(언제|몇시|시간|시각)/.test(text))return result('timing');
-  if(/(끝|완료|됐|되었|했어|했니|했나|했지|했음)/.test(text))return result('completed');
+  if(/(끝|완료|됐|되었|했|다됨|함$)/.test(text))return result('completed');
   if(topic||/(있|없|하나|해|할|진행|반영)/.test(short))return result('status');
   return result('help');
 }
@@ -50,7 +54,7 @@ export async function resetQuestionFingerprint(content) {
 
 export function resetQuestionReply({state,posts,pending},now=Date.now(),question={}) {
   if(['help','greeting'].includes(question.intent))return '초기화 관련 질문에만 답변할 수 있어. 초기화 일정이나 진행 상태가 궁금하면 물어봐!';
-  if(question.intent==='manual')return '초기화를 직접 해줄 순 없어. 공지된 일정은 바로 알려줄게.';
+  if(question.intent==='manual')return manualResetReply(question);
   if(question.intent==='personal')return '네 계정의 사용량은 확인할 수 없어. Tibo가 올린 초기화 공지 기준으로 알려줄게.';
   if(!state?.baseline_id||!Number.isFinite(state.last_success)||state.last_error||now-state.last_success>180000||state.last_success>now+60000)return '지금 새 공지를 확인 중이야. 조금 뒤에 다시 물어봐.';
   if(pending)return '새 글이 들어와서 확인 중이야. 잠깐만 기다려.';
