@@ -1,6 +1,7 @@
 import {scheduleSiteResets,processSiteResetJob} from './site-reset-watch.js';
 import {processGuildJob} from './guild-settings.js';
 import {maintainGateway} from './gateway.js';
+import {maintainBotProfile} from './bot-profile.js';
 export {DiscordGateway} from './gateway.js';
 export {DiscordCommandGuard} from './command-guard.js';
 import {handleDiscord,processDiscordJob} from './discord.js';
@@ -18,7 +19,7 @@ export default {
     return new Response('Not found',{status:404});
   },
   async scheduled(controller,env) {
-    await Promise.all([scheduleWatch(env),scheduleSiteResets(env),maintainGateway(env)]);
+    await Promise.all([scheduleWatch(env),scheduleSiteResets(env),maintainGateway(env),maintainBotProfile(env,controller.scheduledTime)]);
   },
   async queue(batch,env) {
     for(const message of batch.messages){

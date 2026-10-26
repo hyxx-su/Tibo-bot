@@ -23,6 +23,7 @@
     "SITE_RESETS_ENABLED": "false",
     "RESET_ANALYSIS_DAILY_LIMIT": "100",
     "GATEWAY_ENABLED": "false",
+    "PROFILE_SYNC_ENABLED": "false",
     "RESET_CHAT_ENABLED": "false"
   },
   "d1_databases": [
