@@ -1,6 +1,6 @@
 import {validId,discordApi} from './guild-settings.js';
 import {publishedTimestamp,formatKoreanTime} from './reset-time.js';
-import {noAnnouncementReplies,noAnnouncementReply,manualResetReply} from './reset-replies.js';
+import {noAnnouncementReplies,noAnnouncementReply,mentionedResetReply} from './reset-replies.js';
 
 const dayMs=86400000;
 const koreanDay=timestamp=>new Date(timestamp+9*3600000).toISOString().slice(0,10);
@@ -54,7 +54,7 @@ export async function resetQuestionFingerprint(content) {
 
 export function resetQuestionReply({state,posts,pending},now=Date.now(),question={}) {
   if(['help','greeting'].includes(question.intent))return '초기화 관련 질문에만 답변할 수 있어. 초기화 일정이나 진행 상태가 궁금하면 물어봐!';
-  if(question.intent==='manual')return manualResetReply(question);
+  // 부탁형도 확인된 소식으로 답한다. 실행 약속이나 기능 설명으로 상태 안내를 대신하지 않는다.
   if(question.intent==='personal')return '네 계정의 사용량은 확인할 수 없어. Tibo가 올린 초기화 공지 기준으로 알려줄게.';
   if(!state?.baseline_id||!Number.isFinite(state.last_success)||state.last_error||now-state.last_success>180000||state.last_success>now+60000)return '지금 새 공지를 확인 중이야. 조금 뒤에 다시 물어봐.';
   if(pending)return '새 글이 들어와서 확인 중이야. 잠깐만 기다려.';
@@ -94,7 +94,7 @@ export function resetQuestionReply({state,posts,pending},now=Date.now(),question
   }
   if(analysis.status==='completed')return scope||koreanDay(at)===today?`${scope?scopeName:'오늘'} 초기화는 이미 끝났다는 공지가 있어. 달려보자.`:noAnnouncementReply(question,'아직 오늘 새 초기화 공지는 못 봤네.');
   if(analysis.status==='in_progress')return now-at<=dayMs?'초기화 반영 중이라는 공지가 있어. 조금만 기다려.':'이전에는 반영 중이었는데, 지금 상태는 더 확인해야겠네.';
-  if(analysis.status==='mentioned')return now-at<=dayMs?'초기화 얘기는 있는데, 확정된 일정은 아직 못 봤네.':noAnnouncementReply(question,'아직 오늘 초기화 공지는 못 봤네.');
+  if(analysis.status==='mentioned')return now-at<=dayMs?mentionedResetReply(question):noAnnouncementReply(question,'아직 오늘 초기화 공지는 못 봤네.');
   return '최근 글 분석을 아직 확인 못 했어. 조금 뒤에 다시 물어봐.';
 }
 

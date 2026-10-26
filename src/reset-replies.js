@@ -204,7 +204,9 @@ export const noAnnouncementReplies=Object.freeze([
 
 export function selectNoAnnouncementReplyIndex(recent=[],random=Math.random) {
   const excluded=new Set(recent.slice(-20));
-  const available=noAnnouncementReplies.map((_,index)=>index).filter(index=>!excluded.has(index));
+  // 같은 선택 번호를 쓰는 20개 상태 문구도 최근 5번과 겹치지 않게 한다.
+  const recentVariants=new Set(recent.slice(-5).map(index=>index%mentionedResetReplies.length));
+  const available=noAnnouncementReplies.map((_,index)=>index).filter(index=>!excluded.has(index)&&!recentVariants.has(index%mentionedResetReplies.length));
   return available[Math.floor(random()*available.length)];
 }
 
@@ -213,30 +215,30 @@ export function noAnnouncementReply(question,fallback) {
   return noAnnouncementReplies[question.replyIndex]??fallback;
 }
 
-export const manualResetReplies=Object.freeze([
-  '초기화를 직접 해줄 순 없어. 공지된 일정은 바로 알려줄게.',
-  '마음은 알지. 내가 리셋을 실행할 순 없지만, 일정은 알려줄 수 있어.',
-  '나도 바로 주고 싶네. 직접 초기화할 권한은 없고, 공지 소식은 전해줄게.',
-  '리셋이 간절하구나. 내가 직접 해줄 순 없지만, 언제인지 확인된 건 알려줄게.',
-  '주고 싶은 마음은 굴뚝같지. 직접 실행은 못 하고, 초기화 소식은 알려줄 수 있어.',
-  '말 한마디로 초기화되면 좋겠네. 나는 공지된 일정과 진행 상태를 알려주는 봇이야.',
-  '초기화 요청은 들었어. 직접 처리할 순 없고, 공지된 내용은 알려줄게.',
-  '내가 누를 리셋 버튼은 없어. 대신 초기화 일정은 물어봐.',
-  '리셋 한 번이면 좋겠지. 내가 해줄 수 있는 건 공지 소식을 전하는 거야.',
-  '바로 초기화해주고 싶지만, 내가 실행할 수 있는 기능은 아니야. 일정은 알려줄게.',
-  '리셋이 필요한 건 알겠어. 실제 요청을 처리하진 못하고, 공지 안내만 할 수 있어.',
-  '초기화를 직접 줄 수는 없네. 확인된 일정이나 진행 상황은 알려줄게.',
-  '기다리는 마음은 알지. 직접 리셋은 못 하지만 공지 소식은 확인해줄 수 있어.',
-  '내 말로 한도를 풀 수는 없어. 초기화 공지에 나온 내용은 알려줄게.',
-  '초기화가 필요하구나. 내가 직접 실행하진 못해도 일정 안내는 할 수 있어.',
-  '직접 리셋해주는 능력은 없네. 대신 확인된 공지는 전해줄 수 있어.',
-  '리셋을 당겨줄 수 있으면 좋겠네. 나는 발표된 일정까지만 알려줄 수 있어.',
-  '초기화는 내가 결정할 수 없어. 언제 예정돼 있는지는 공지 기준으로 알려줄게.',
-  '여기서 바로 초기화해줄 수는 없어. 예정이나 완료 소식이 궁금하면 물어봐.',
-  '요청한다고 내가 바로 리셋할 수는 없네. 확인된 소식은 바로 알려줄게.',
+export const mentionedResetReplies=Object.freeze([
+  '초기화 얘기는 나왔어. 언제인지는 아직 안 나왔네.',
+  '리셋 소식은 있어. 시간은 아직 미정이야.',
+  '초기화 언급은 있었는데, 몇 시인지는 아직 모르겠네.',
+  '리셋 얘기는 나왔지. 확정된 시간은 아직 없어.',
+  '초기화 소식은 들렸어. 일정은 좀 더 봐야겠네.',
+  '리셋 언급은 확인했어. 시각은 아직 안 잡혔네.',
+  '초기화 얘기는 있어. 지금은 시간까지 나온 건 아니야.',
+  '리셋 소식은 봤네. 언제 할지는 아직 미정이야.',
+  '초기화 언급까진 나왔어. 시간 안내는 아직이네.',
+  '리셋 얘기는 있는데, 날짜랑 시간은 더 확인해야 해.',
+  '초기화 소식은 있지. 몇 시라고 말할 단계는 아직이야.',
+  '리셋 언급은 있었어. 구체적인 일정은 아직 못 봤네.',
+  '초기화 얘기는 확인했지. 언제인지는 더 기다려 봐야겠네.',
+  '리셋 소식까진 나왔네. 정확한 시각은 아직 몰라.',
+  '초기화 언급은 있어. 시간은 아직 정해졌다는 소식이 없네.',
+  '리셋 얘기는 봤어. 일정이 나온 건 아직 아니야.',
+  '초기화 소식은 있는데, 시각 안내는 아직 안 보이네.',
+  '리셋 언급까진 확인됐어. 언제 할지는 더 봐야겠네.',
+  '초기화 얘기는 나왔네. 구체적인 시간은 아직 미정이야.',
+  '리셋 소식은 있어. 확정 일정은 아직 못 찾았네.',
 ]);
 
-export function manualResetReply(question={}) {
-  const index=Number.isInteger(question.replyIndex)&&question.replyIndex>=0?question.replyIndex%manualResetReplies.length:0;
-  return manualResetReplies[index];
+export function mentionedResetReply(question={}) {
+  const index=Number.isInteger(question.replyIndex)&&question.replyIndex>=0?question.replyIndex%mentionedResetReplies.length:0;
+  return mentionedResetReplies[index];
 }
