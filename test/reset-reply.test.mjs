@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
 import {resetQuestionJob,resetQuestionIntent,resetQuestionFingerprint,resetQuestionReply,repeatQuestionReply,processResetQuestionJob,dispatchResetQuestion} from '../src/reset-reply.js';
-import {noAnnouncementReplies,selectNoAnnouncementReplyIndex,manualResetReplies} from '../src/reset-replies.js';
+import {noAnnouncementReplies,selectNoAnnouncementReplyIndex,mentionedResetReplies} from '../src/reset-replies.js';
 import {DiscordGateway} from '../src/gateway.js';
 import {DiscordCommandGuard,claimResetQuestion} from '../src/command-guard.js';
 
@@ -40,18 +40,36 @@ test('200개 답변이 모두 고유하고 선택 가능하며 최근 선택 20�
   assert.equal(noAnnouncementReplies.length,200);assert.equal(new Set(noAnnouncementReplies).size,200);
   const selected=new Set();for(let i=0;i<200;i++)selected.add(selectNoAnnouncementReplyIndex([],()=>(i+0.5)/200));assert.equal(selected.size,200);
   const recent=Array.from({length:20},(_,i)=>i);
-  for(let i=0;i<180;i++)assert.ok(!recent.includes(selectNoAnnouncementReplyIndex(recent,()=>(i+0.5)/180)));
+  for(let i=0;i<200;i++){const index=selectNoAnnouncementReplyIndex(recent,()=>(i+0.5)/200);assert.ok(Number.isInteger(index));assert.ok(!recent.includes(index));assert.ok(!recent.slice(-5).some(previous=>previous%20===index%20));}
   for(const text of noAnnouncementReplies){assert.doesNotMatch(text,/[\r\n]|<@|https?:/);assert.ok(text.length<200);}
 });
-test('초기화 요청 답변 20개는 일정·완료 안내와 구분하며 재시도 시 동일하게 선택한다',()=>{
-  assert.equal(manualResetReplies.length,20);assert.equal(new Set(manualResetReplies).size,20);
+test('부탁형도 기능 설명 대신 실제 공지 상태를 답한다',()=>{
+  for(const text of ['초기화 내놔','초기화 줘라','리셋 제발']){
+    const question={...resetQuestionIntent(text),replyIndex:7};
+    const ask=(posts=[],extra={})=>resetQuestionReply({state,posts,pending:false,...extra},now,question);
+    assert.equal(ask(),noAnnouncementReplies[7]);
+    assert.equal(ask([post('100','mentioned')]),mentionedResetReplies[7]);
+    assert.match(ask([post('100','scheduled',undefined,{timestamp:now+3600000})]),/초기화 예정이야/);
+    assert.match(ask([post('100','completed')]),/이미 끝났다는 공지/);
+    assert.match(ask([post('100','in_progress')]),/반영 중/);
+    assert.match(ask([],{state:null}),/확인 중/);
+    assert.match(ask([],{pending:true}),/확인 중/);
+    assert.match(resetQuestionReply({state,posts:[],pending:false},now,{...question,dayOffset:1}),/내일 초기화 공지는 못/);
+  }
+});
+test('시간 미정 답변은 고유한 20개 문구를 사용하고 재시도에도 같다',()=>{
+  assert.equal(mentionedResetReplies.length,20);assert.equal(new Set(mentionedResetReplies).size,20);
   const selected=new Set();for(let replyIndex=0;replyIndex<200;replyIndex++){
-    const question={intent:'manual',replyIndex};const answer=resetQuestionReply({},now,question);selected.add(answer);
-    assert.equal(answer,resetQuestionReply({},now,question));assert.ok(!noAnnouncementReplies.includes(answer));assert.doesNotMatch(answer,/[\r\n]|초기화했어|초기화해줄게|초기화됐어/);
+    const question={intent:'manual',replyIndex};const input={state,posts:[post('100','mentioned')],pending:false};
+    const answer=resetQuestionReply(input,now,question);selected.add(answer);
+    assert.equal(answer,resetQuestionReply(input,now,question));assert.ok(!noAnnouncementReplies.includes(answer));
+    assert.doesNotMatch(answer,/[\r\n]|내가|권한|기능|초기화해줄게|처리했어/);
   }assert.equal(selected.size,20);
-  const manual=resetQuestionIntent('초기화 줘라'),timing=resetQuestionIntent('초기화 언제 해줘?');
-  assert.ok(manualResetReplies.includes(resetQuestionReply({},now,{...manual,replyIndex:7})));
-  assert.match(resetQuestionReply({state,posts:[post('100','scheduled',undefined,{timestamp:now+3600000})],pending:false},now,timing),/초기화 예정이야/);
+  let recent=[];for(let i=0;i<100;i++){
+    const index=selectNoAnnouncementReplyIndex(recent,()=>0.37);
+    assert.ok(!recent.slice(-5).some(previous=>mentionedResetReplies[previous%20]===mentionedResetReplies[index%20]));
+    recent.push(index);
+  }
 });
 test('200개 문구는 오늘 공지 미확인에만 쓰고 다른 날짜·예정·완료·장애에는 섞지 않는다',()=>{
   for(let replyIndex=0;replyIndex<200;replyIndex++){
@@ -84,7 +102,7 @@ test('조기 완료·진행 공지와 모호한 언급을 구분하고 지난 �
   const forecast=post('100','scheduled','2026-10-26T01:00:00Z',{timestamp:now+3600000});
   assert.match(reply([forecast,post('101','completed')]),/이미 끝났다는 공지/);
   assert.match(reply([forecast,post('101','in_progress')]),/반영 중이라는 공지/);
-  assert.match(reply([forecast,post('101','mentioned')]),/확정된 일정은 아직/);
+  assert.match(reply([forecast,post('101','mentioned')]),/언제인지는 아직/);
 });
 test('일반 글은 공지를 덮지 않지만 한국시간 어제의 완료를 오늘 완료라고 하지 않는다',()=>{
   assert.match(reply([post('100','completed'),post('101','unrelated','2026-10-26T02:30:00Z')]),/오늘 초기화는 이미/);
@@ -117,9 +135,11 @@ test('남은 시간은 공지 기한과 구분하며 완료 질문에 예정을 
 });
 test('반복 질문에도 현재 상태를 답하고 안내·인사·직접 실행 한계를 구분한다',()=>{
   assert.match(repeatQuestionReply(reply(),1),/공지는 못 봤네.*아까도 물어봤지/);
-  assert.match(repeatQuestionReply(reply([post('100','completed')]),2),/이미 끝났다는.*또 확인했네/);
+  assert.equal(repeatQuestionReply(reply([post('100','completed')]),2),reply([post('100','completed')]));
   assert.equal(repeatQuestionReply('답',0),'답');assert.doesNotMatch(repeatQuestionReply('답',3),/\n/);
   for(const intent of ['help','greeting','manual','personal'])assert.equal(typeof resetQuestionReply({},now,{intent}),'string');
+  assert.equal(repeatQuestionReply('답',1),'답 아까도 물어봤지? 😏');
+  for(const count of [0,2,3,100,1000,-1,1.5,undefined])assert.equal(repeatQuestionReply('답',count),'답');
   assert.match(resetQuestionReply({},now,{intent:'personal'}),/네 계정의 사용량은 확인할 수 없어/);
 });
 
@@ -143,6 +163,7 @@ try{
     await process({messageId:'401',...first},2);assert.equal(calls.at(-1).content,original);
     const other=await f.claim('402','30','91','20',phrase);await process({messageId:'402',userId:'91',...other});assert.equal(calls.at(-1).content,noAnnouncementReplies[other.replyIndex]);assert.notEqual(other.replyIndex,first.replyIndex);
     const repeated=await f.claim('403','30','90','20',phrase);await process({messageId:'403',...repeated});assert.equal(calls.at(-1).content,noAnnouncementReplies[repeated.replyIndex]+' 아까도 물어봤지? 😏');
+    const third=await f.claim('405','30','90','20',phrase);assert.equal(third.repeatCount,2);await process({messageId:'405',...third});assert.equal(calls.at(-1).content,noAnnouncementReplies[third.replyIndex]);
     const changed=await f.claim('404','30','90','20',await resetQuestionFingerprint('Tibo야 언제 해?'));await process({messageId:'404',...changed});assert.equal(calls.at(-1).content,noAnnouncementReplies[changed.replyIndex]);
     const before=calls.length;await process({replyIndex:200});await process({replyIndex:-1});assert.equal(calls.length,before);
   });
