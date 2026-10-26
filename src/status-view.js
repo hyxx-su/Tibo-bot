@@ -13,7 +13,7 @@ export function statusMessage({state,hasFailures,gateway,channelId,now=Date.now(
   }else if(hasFailures){
     severity='error';title='🔴 일부 알림을 보내지 못했어요';description='알림 채널의 봇 권한을 확인해 주세요. 문제가 계속되면 봇 관리자에게 문의해 주세요.';
   }else if(!configured){
-    severity='warning';title='🟡 알림 채널을 선택해 주세요';description='`/알림설정`으로 메시지를 받을 채널을 선택할 수 있어요.';
+    severity='warning';title='🟡 알림 채널을 선택해 주세요';description='`/채널`으로 메시지를 받을 채널을 선택할 수 있어요.';
   }else if(gateway.status!=='online'){
     severity='warning';title='🟡 봇 연결을 확인 중이에요';description=gateway.status==='disabled'?'봇 관리자에게 연결 설정을 확인해 달라고 요청해 주세요.':'잠시 후 다시 확인해 주세요.';
   }else if(!state?.baseline_id||!hasSuccess){

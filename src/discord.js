@@ -30,7 +30,7 @@ export async function handleDiscord(request, env) {
   if(!interaction||typeof interaction!=='object'||Array.isArray(interaction))return new Response('Invalid interaction',{status:400});
   if(interaction.type===1)return Response.json({type:1});
   if(interaction.application_id!==env.DISCORD_APPLICATION_ID)return privateReply('이 앱의 명령이 아닙니다.');
-  const setup=interaction.type===2&&interaction.data?.name==='알림설정';
+  const setup=interaction.type===2&&interaction.data?.name==='채널';
   const selection=interaction.type===3&&interaction.data?.custom_id==='tibo:notify-channel';
   if(setup||selection){
     if(!validId(interaction.guild_id)||!interaction.member)return privateReply('서버에서 실행해 주세요.');
@@ -43,7 +43,7 @@ export async function handleDiscord(request, env) {
       return Response.json({type:5,data:{flags:64}});
     }catch{return privateReply('설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');}
   }
-  if(interaction.type!==2||interaction.data?.name!=='상태')return privateReply('이 앱은 /알림설정, /상태 명령을 지원합니다.');
+  if(interaction.type!==2||interaction.data?.name!=='상태')return privateReply('이 앱은 /채널, /상태 명령을 지원합니다.');
   if(!validId(interaction.guild_id)||!interaction.member)return privateReply('서버에서 실행해 주세요.');
   if(interaction.data.name==='상태'){
     if(env.WATCH_ENABLED!=='true')return privateReply('자동 알림이 꺼져 있습니다.');
@@ -98,7 +98,7 @@ export async function processDiscordJob(message, env) {
     // 토큰이 포함될 수 있는 외부 요청 URL과 오류 원문은 로그에 남기지 않는다.
     if(message.attempts<3){message.retry({delaySeconds:30});}
     else{
-      try{await updateOriginal(env,job,job.kind==='discord-configure'?(error.setupSaved?'알림 채널 설정은 저장됐지만 확인 메시지를 보내지 못했습니다. /상태로 설정된 채널과 봇 권한을 확인해 주세요.':'채널 설정을 완료하지 못했습니다. 잠시 후 /알림설정으로 다시 시도해 주세요.'):'검증을 완료하지 못했습니다. 수집원 상태 또는 Gemini 무료 한도를 확인해 주세요.');}catch{}
+      try{await updateOriginal(env,job,job.kind==='discord-configure'?(error.setupSaved?'알림 채널 설정은 저장됐지만 확인 메시지를 보내지 못했습니다. /상태로 설정된 채널과 봇 권한을 확인해 주세요.':'채널 설정을 완료하지 못했습니다. 잠시 후 /채널으로 다시 시도해 주세요.'):'검증을 완료하지 못했습니다. 수집원 상태 또는 Gemini 무료 한도를 확인해 주세요.');}catch{}
       message.ack();
     }
     console.log(JSON.stringify({probe:'tibo-bot',event:'discord-stage',kind:job.kind,interactionId:job.interactionId,action:message.attempts<3?'retry':'failed'}));

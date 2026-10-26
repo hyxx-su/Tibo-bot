@@ -3,7 +3,7 @@ import {readLimitedText} from './input.js';
 export const validId=value=>typeof value==='string'&&/^\d{1,20}$/.test(value);
 export const canManage=permissions=>typeof permissions==='string'&&/^\d{1,30}$/.test(permissions)&&(BigInt(permissions)&40n)!==0n;
 export const channelMenu=()=>[{type:1,components:[{type:8,custom_id:'tibo:notify-channel',channel_types:[0,5],placeholder:'Tibo 메시지를 받을 채널을 선택하세요',min_values:1,max_values:1}]}];
-export const welcomeContent='반가워요! 저는 Tibo봇이에요.\nTibo의 새 글과 초기화 안내를 받을 채널을 선택해 주세요.\n서버 관리자는 아래 메뉴 또는 `/알림설정`으로 설정할 수 있어요.';
+export const welcomeContent='반가워요! 저는 Tibo봇이에요.\nTibo의 새 글과 초기화 안내를 받을 채널을 선택해 주세요.\n서버 관리자는 아래 메뉴 또는 `/채널`으로 설정할 수 있어요.';
 
 export async function discordApi(env,path,options={}) {
   const response=await fetch('https://discord.com/api/v10'+path,{...options,redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000)});
@@ -57,7 +57,7 @@ export async function configureGuild(env,job) {
     ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id,active=1,
     activated_at=CASE WHEN guild_settings.channel_id IS NULL OR guild_settings.active=0 THEN excluded.activated_at ELSE guild_settings.activated_at END,
     config_event=excluded.config_event WHERE CAST(guild_settings.config_event AS INTEGER)<=CAST(excluded.config_event AS INTEGER) RETURNING channel_id`).bind(job.guildId,job.channelId,now,job.interactionId).first();
-  if(!saved)return '더 최근의 채널 설정이 있어 이 요청은 적용하지 않았습니다. /알림설정으로 확인해 주세요.';
+  if(!saved)return '더 최근의 채널 설정이 있어 이 요청은 적용하지 않았습니다. /채널으로 확인해 주세요.';
   try{
     // Queue 재전달과 비공개 응답 재시도에서도 같은 설정 요청은 같은 nonce를 사용한다.
     await discordApi(env,`/channels/${saved.channel_id}/messages`,{method:'POST',body:JSON.stringify({
@@ -68,7 +68,7 @@ export async function configureGuild(env,job) {
     if([403,404].includes(error.status))return `알림 채널은 <#${saved.channel_id}>로 저장됐지만, 해당 채널에 확인 메시지를 보내지 못했습니다. 봇의 채널 보기·메시지 보내기·링크 임베드 권한을 확인해 주세요.`;
     error.setupSaved=true;throw error;
   }
-  return `이제 <#${saved.channel_id}>에서 Tibo의 새 글과 초기화 안내를 보내드릴게요!\n다른 채널로 바꾸려면 /알림설정을 사용해 주세요.`;
+  return `이제 <#${saved.channel_id}>에서 Tibo의 새 글과 초기화 안내를 보내드릴게요!\n다른 채널로 바꾸려면 /채널을 사용해 주세요.`;
 }
 
 export async function recordGuildEvent(env,type,guildId,unavailable=false) {
@@ -131,7 +131,7 @@ export async function sendWelcome(env,guildId,reselect=false) {
       if(!current)return;
       try{
         const message=await discordApi(env,`/channels/${channel.id}/messages`,{method:'POST',body:JSON.stringify({
-          ...(reselect?{embeds:[{title:'알림 채널을 다시 선택해 주세요',description:'기존 알림 채널을 사용할 수 없어 알림을 일시 중지했어요.\n서버 관리자는 아래에서 새 채널을 선택하거나 `/알림설정`을 사용해 주세요.',color:0xFEE75C}]}:{content:welcomeContent}),
+          ...(reselect?{embeds:[{title:'알림 채널을 다시 선택해 주세요',description:'기존 알림 채널을 사용할 수 없어 알림을 일시 중지했어요.\n서버 관리자는 아래에서 새 채널을 선택하거나 `/채널`을 사용해 주세요.',color:0xFEE75C}]}:{content:welcomeContent}),
           components:channelMenu(),allowed_mentions:{parse:[]},nonce,enforce_nonce:true,
         })});
         await env.DB.prepare('UPDATE guild_settings SET welcome_message_id=?,welcome_channel_id=? WHERE guild_id=? AND active=1 AND channel_id IS NULL AND welcome_lease_until=?').bind(message.id,channel.id,guildId,lease).run();
