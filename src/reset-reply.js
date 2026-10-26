@@ -112,7 +112,7 @@ function resetQuestionStatusReply({state,posts,pending},now,question) {
   const newest=signals[0];
   const sourceLink=signal=>`https://x.com/thsottiaux/status/${signal.id}`;
   if(question.intent==='history'){
-    const completed=signals.find(signal=>signal.analysis.status==='completed');
+    const completed=signals.find(signal=>signal.analysis.status==='completed'&&![ 'banked','unknown'].includes(signal.analysis.reset_type));
     return completed?`최근 100개 글·7일 범위에서 찾은 마지막 완료 공지는 ${formatKoreanTime(completed.at)}에 올라왔어. 실제 계정 반영 시각과는 달라. ${sourceLink(completed)}`:'최근 100개 글·7일 범위에서는 완료 공지를 찾지 못했어.';
   }
   if(['source','coverage','comparison','change'].includes(question.intent)){
@@ -130,10 +130,19 @@ function resetQuestionStatusReply({state,posts,pending},now,question) {
   const latest=!scope?signals[0]:question.dayOffset<0?signals.find(matchesScope):signals[0]&&matchesScope(signals[0])?signals[0]:null;
   if(!latest)return noAnnouncementReply(question,`아직 ${scopeName} 초기화 공지는 못 봤네.`);
   const {analysis,at}=latest;const today=koreanDay(now);
+  const banked=analysis.reset_type==='banked';
+  if(analysis.status==='completed'&&analysis.reset_type==='unknown')return '완료 안내는 있지만 정기 리셋인지 저장형 지급인지 아직 확인되지 않았어.';
+  if(banked){
+    if(analysis.status==='completed')return scope||koreanDay(at)===today?'저장형 리셋이 지급됐다는 공지가 있어. 현재 사용량의 즉시 초기화와는 달라.':noAnnouncementReply(question,'아직 오늘 새 초기화 공지는 못 봤네.');
+    if(analysis.status==='in_progress')return now-at<=dayMs?'저장형 리셋 지급이 진행 중이야. 현재 사용량이 바로 초기화됐다는 뜻은 아니야.':'이전에는 저장형 리셋 지급 중이었는데, 지금 상태는 더 확인해야 해.';
+    if(analysis.status==='mentioned')return '저장형 리셋 얘기는 있지만 지급 일정이나 완료 여부는 아직 확인되지 않았어.';
+  }
   // 최신 완료·취소 관련 언급을 건너뛰어 과거 예정을 되살리지 않는다.
   if(analysis.status==='scheduled'){
     const timestamp=analysis.time?.timestamp;
+    if(banked&&!Number.isFinite(timestamp))return '저장형 리셋 지급 예고는 있어. 정확한 지급 시간은 아직 확인되지 않았어.';
     if(!Number.isFinite(timestamp))return now-at<=dayMs?'초기화 예정은 있어. 정확한 시간은 아직 못 박지 않았네.':'예전에 초기화 예고는 있었는데, 새 일정은 아직 확인 못 했어.';
+    if(banked&&timestamp<now)return '저장형 리셋 지급 예정 시각은 지났지만 지급 완료 공지는 아직 못 봤네.';
     if(timestamp<now)return question.intent==='delay'?'예정 시각은 지났어. 완료 공지나 늦어진 이유는 아직 확인 못 했네.':'예정 시각은 지났는데, 완료 공지는 아직 못 봤네.';
     if(timestamp>now+7*dayMs)return '초기화 예고는 있는데, 가까운 일정인지는 더 확인해야겠네.';
     const formatted=formatKoreanTime(timestamp);const [date,time]=formatted.split(' ');
@@ -142,8 +151,10 @@ function resetQuestionStatusReply({state,posts,pending},now,question) {
     if(question.intent==='remaining'){
       const minutes=Math.ceil((timestamp-now)/60000),hours=Math.floor(minutes/60);
       const left=minutes===0?'1분 미만':`${hours?hours+'시간 ':''}${minutes%60?minutes%60+'분':''}`.trim();
+      if(banked)return `저장형 리셋 지급 ${analysis.time.relation==='deadline'?'기한':'예정 시각'}까지 ${left} 남았어. ${schedule} 예정이야.`;
       return `공지한 ${analysis.time.relation==='deadline'?'기한':'예정 시각'}까지 ${left} 남았어. ${schedule} 예정이야.`;
     }
+    if(banked)return `저장형 리셋 지급은 ${schedule} 예정이야. 현재 사용량이 바로 초기화됐다는 뜻은 아니야.`;
     return `${question.intent==='completed'?'아직 확인된 건 예고야.':'있지.'} ${schedule} 초기화 예정이야.`;
   }
   if(analysis.status==='completed')return scope||koreanDay(at)===today?`${scope?scopeName:'오늘'} 초기화는 이미 끝났다는 공지가 있어. 달려보자.`:noAnnouncementReply(question,'아직 오늘 새 초기화 공지는 못 봤네.');

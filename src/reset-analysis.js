@@ -1,6 +1,8 @@
+import {encodeEmbedNotification} from './notification-payload.js';
 import {readLimitedText,discordPlainText} from './input.js';
 import {publishedTimestamp,parseResetTime,formatKoreanTime} from './reset-time.js';
 
+const resetTypes=['regular','banked','unknown'];
 const statuses=['scheduled','in_progress','completed','mentioned','unrelated'];
 
 export async function analyzeReset(env,post) {
@@ -19,17 +21,25 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 판단 순서
 1. 대상: 사용량·사용 한도의 초기화인가? 서비스 장애 복구, 새 모델·기능 배포, 한도 상향, 휴식, 비밀번호·기기 초기화는 별개다. 사용량 계산 오류 수정, 잘못 차감한 크레딧 환불·보상, 캐시 효율 개선도 초기화 사실이 명시되지 않으면 unrelated다. credits/usage/limits라는 단어만으로 초기화와 연결하지 않는다.
 2. 현재 글의 의도: 새 예정·진행·완료를 알리는가? context는 생략된 대상을 연결하는 용도이며 과거 공지를 현재 공지로 복사하는 용도가 아니다. 질문·요청·가정·희망·단순 회상은 실행 공지가 아니다.
-3. 상태: 현재 글의 시제·부정·진행·적용 범위를 함께 확인한다. 같은 글에 완료 표현과 남은 반영 작업이 함께 있으면 전체 완료로 분류하지 않는다.
-4. 근거와 시간: 아래 출력 규칙대로 원문 구절만 추출한다. 날짜나 실행 시각을 직접 계산하지 않는다.
+3. 유형: 아래 정의로 regular/banked/unknown을 판별한다. banked라는 단어가 없다는 이유만으로 regular를 선택하지 않는다.
+4. 상태: 현재 글의 시제·부정·진행·적용 범위를 함께 확인한다. 같은 글에 완료 표현과 남은 반영 작업이 함께 있으면 전체 완료로 분류하지 않는다.
+5. 근거와 시간: 아래 출력 규칙대로 원문 구절만 추출한다. 날짜나 실행 시각을 직접 계산하지 않는다.
+
+유형 정의
+- regular: 현재 사용량·한도를 직접 초기화하는 것. '정기'는 이 유형의 표시 이름이며 고정 주기로 반복된다는 뜻은 아니다. 사용량 한도를 실제로 복구한다는 원문 근거가 필요하다.
+- banked: 나중에 사용자가 사용할 수 있는 초기화권을 지급하는 것. 지급 완료와 사용량의 즉시 초기화는 다르다.
+- unknown: 유형이 불명확하거나 두 유형이 함께 있어 한 유형으로 표현할 수 없거나 무관한 글이다. 단순 'a reset' 선언만으로 regular를 확정하지 않는다.
+- reset_type과 status는 독립적이다. banked의 scheduled/in_progress/completed는 초기화권 지급의 예정/진행/완료이며 현재 사용량 초기화의 상태가 아니다.
 
 상태 정의
-- scheduled: 작성자가 앞으로 초기화를 하겠다고 명확하게 안내한다. 시각이 없어도 예정은 가능하다. 취소·연기된 이전 기한을 유효한 기한으로 재사용하지 않는다.
-- in_progress: 초기화가 시작되어 적용 중이거나 일부 계정만 반영됐고 나머지가 남아 있다. 'reset button pressed' 뒤 'still propagating'이 있으면 이 상태다.
-- completed: 현재 사용량 초기화의 전체 반영 완료를 작성자가 명확히 알린다. 사용량을 이미 초기화했다는 사실이나 전체 반영 완료의 명시적 근거가 필요하다. 'that’s a reset!', 'a reset for you' 같은 단순 선언만으로 완료를 확정하지 않는다. 같은 글에서 다른 기능을 이미 배포했다는 과거형도 초기화 완료 근거가 아니다. 단순 선언만 있고 실행 상태·기한이 없으면 mentioned, 연결된 후속 글이 미래 기한을 설명하면 scheduled다. 일부 플랜·지역·계정만 완료됐거나 전체 적용 범위가 불분명하면 completed가 아니다. 사용량이 모두 복구되었다는 표현은 reset 단어 없이도 완료 근거가 될 수 있다.
-- mentioned: 사용량 초기화와 관련되지만 새 예정·진행·전체 완료가 확정되지 않는다. 초기화 질문·요청·취소·과거 회상, 일부 범위만 완료되고 나머지 상태가 불명확한 안내, 나중에 직접 쓸 초기화권(banked reset) 지급은 여기에 포함한다. 초기화권 지급만으로 현재 사용량이 초기화됐다고 쓰지 않는다.
+- scheduled: regular는 앞으로 사용량 초기화, banked는 앞으로 초기화권 지급을 안내한다. 작성자가 앞으로 초기화를 하겠다고 명확하게 안내한다. 시각이 없어도 예정은 가능하다. 취소·연기된 이전 기한을 유효한 기한으로 재사용하지 않는다.
+- in_progress: banked는 초기화권 배포가 진행 중임을 뜻한다. regular는 초기화가 시작되어 적용 중이거나 일부 계정만 반영됐고 나머지가 남아 있다. 'reset button pressed' 뒤 'still propagating'이 있으면 이 상태다.
+- completed: banked는 초기화권 지급 완료를 명시하며 현재 사용량 초기화로 요약하지 않는다. regular는 현재 사용량 초기화의 전체 반영 완료를 작성자가 명확히 알린다. 사용량을 이미 초기화했다는 사실이나 전체 반영 완료의 명시적 근거가 필요하다. 'that’s a reset!', 'a reset for you' 같은 단순 선언만으로 완료를 확정하지 않는다. 같은 글에서 다른 기능을 이미 배포했다는 과거형도 초기화 완료 근거가 아니다. 단순 선언만 있고 실행 상태·기한이 없으면 mentioned, 연결된 후속 글이 미래 기한을 설명하면 scheduled다. 일부 플랜·지역·계정만 완료됐거나 전체 적용 범위가 불분명하면 completed가 아니다. 사용량이 모두 복구되었다는 표현은 reset 단어 없이도 완료 근거가 될 수 있다.
+- mentioned: 사용량 초기화와 관련되지만 새 예정·진행·전체 완료가 확정되지 않는다. 초기화 질문·요청·취소·과거 회상, 일부 범위만 완료되고 나머지 상태가 불명확한 안내는 여기에 포함한다. 초기화권 지급의 예정/진행/완료가 명시되면 banked 유형과 해당 상태를 사용한다. 초기화권의 단순 언급·질문·요청만 여기에 포함한다.
 - unrelated: 사용량 초기화와 무관하거나, 대상이 불명확하고 연결 문맥도 없다. 빈 본문만 있는 미디어 글, 단순 감탄·농담도 근거가 없으면 이 상태다.
 
 문맥 해석 예시
+- 'One banked reset has been credited to each account. Use it later.' → banked + completed. 'We will credit a banked reset tomorrow.' → banked + scheduled. 'Do we get a banked reset?' → banked + mentioned.
 - 현재 'Finished.' + 앞선 사용량 초기화 진행 공지 → completed. 같은 말이라도 앞선 내용이 에디터 테마 배포라면 unrelated. 연결 문맥이 없는 'Finished.'도 unrelated.
 - 현재 'Still propagating.' + 초기화 문맥 → in_progress. 예전 예정 시각이 아직 오지 않았어도 현재의 명확한 완료 안내를 우선한다.
 - 현재 글 자체가 과거 사용량 초기화를 구체적으로 회상하면 mentioned다. 예: 'Last month we reset usage limits.'는 새 완료가 아니지만 초기화 관련 언급이다. 반면 현재 'Thanks!' + 과거 완료 인용 → unrelated. 인용된 완료를 현재 글의 완료 증거로 쓰지 않는다.
@@ -42,12 +52,14 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 
 출력 규칙
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
+- reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
+- type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
 - summary_ko: 작성자가 안내한 내용을 한국어 한 문장으로 요약한다. 대상·범위·예정/진행/완료·부정·불확실성을 보존한다. 개별 사용자 계정의 실제 반영을 직접 검증했다고 쓰지 않는다. 완료 시각이나 기존 예상보다 빠르다는 비교를 만들어 쓰지 않는다.
 - evidence: 관련 상태라면 현재 글 또는 context 한 글에 실제 존재하는 연속된 구절을 그대로 복사한다. completed/in_progress는 반드시 현재 text의 구절을 사용한다. 부정·일부·진행 중이라는 제한을 잘라 반대 의미의 근거로 제시하지 않는다. unrelated는 빈 문자열이다.
 - time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
       contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[]})}]}],
-      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','summary_ko','evidence','time_expression']}},
+      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','reset_type','type_evidence','summary_ko','evidence','time_expression']}},
     }),
   });
   if(!response.ok){await response.body?.cancel();throw new Error('Reset analysis HTTP '+response.status);}
@@ -56,6 +68,10 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   const result=JSON.parse(text);
   if(!statuses.includes(result.status)||['summary_ko','evidence','time_expression'].some(k=>typeof result[k]!=='string'))throw new Error('Invalid reset analysis');
   const sources=[post,...(post.context??[])];
+  const resetType=result.reset_type??'unknown',typeEvidence=result.type_evidence??'';
+  if(!resetTypes.includes(resetType)||typeof typeEvidence!=='string')throw new Error('Invalid reset type');
+  if(resetType!=='unknown'&&(!typeEvidence.trim()||!sources.some(source=>source.text.includes(typeEvidence))))throw new Error('Reset type evidence missing');
+  if(result.status==='unrelated'&&resetType!=='unknown')throw new Error('Unrelated reset type');
   if(result.status!=='unrelated'&&(!result.evidence.trim()||!sources.some(source=>source.text.includes(result.evidence))||!result.summary_ko.trim()))throw new Error('Reset evidence missing');
   if(['completed','in_progress'].includes(result.status)&&!post.text.includes(result.evidence))throw new Error('Current post evidence missing');
   // 시각은 AI가 만든 날짜가 아니라, 원문에 실제 존재하는 시간 표현에서만 계산한다.
@@ -63,17 +79,19 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
   const time=timeSource&&typeof timeSource.date==='string'?parseResetTime(expression,publishedTimestamp(timeSource)):null;
   if(time&&/\b(by|before)\b|까지/i.test(expression))time.relation='deadline';
-  return {...result,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
+  return {...result,reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
 }
 
 export function resetNotification(post,analysis) {
   if(analysis.status==='completed'){
-    const expected=Number.isFinite(analysis.previousExpectedAt)?formatKoreanTime(analysis.previousExpectedAt).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
-    const subtitle=expected?`기존 예상 · ${Number(expected[1])}월 ${Number(expected[2])}일 ${expected[3]} (KST)`:'기존 예상 시각 미확인';
-    const postedAt=typeof post.date==='string'?publishedTimestamp(post):null;
-    const earlier=expected&&Number.isFinite(postedAt)&&postedAt<analysis.previousExpectedAt;
-    const description='Tibo가 사용량 초기화의 전체 반영이 완료되었다고 안내했습니다.'+(earlier?' 기존 예상 시각보다 앞서 완료된 것으로 보입니다.':'');
-    return `# 초기화 완료\n-# ${subtitle}\n\n${description}\n\nhttps://x.com/thsottiaux/status/${post.id}`;
+    const type=resetTypes.includes(analysis.reset_type)?analysis.reset_type:'unknown';
+    const names={regular:'정기 리셋 (regular)',banked:'저장형 리셋 (banked)',unknown:'유형 미확인 (unknown)'};
+    const statements={regular:'사용량이 초기화되었습니다.',banked:'저장형 리셋이 지급되었습니다.',unknown:'완료 안내가 있지만 리셋 유형은 확인되지 않았습니다.'};
+    const published=typeof post.date==='string'?publishedTimestamp(post):null;
+    const announced=Number.isFinite(published)?formatKoreanTime(published).replace(' (한국시간, KST)',' KST'):'확인되지 않음';
+    const url=`https://x.com/thsottiaux/status/${post.id}`;
+    return encodeEmbedNotification({title:'🔄 Codex 사용량 리셋 감지',url,color:type==='unknown'?0xFEE75C:0x57F287,
+      description:`${statements[type]}\n유형: ${names[type]}\n발표 시각: ${announced}\n출처: X (@thsottiaux)\n원문: ${url}`});
   }
   const label={scheduled:'초기화 예상 시간 감지',in_progress:'초기화 진행 공지 감지',completed:'초기화 완료 공지 감지',mentioned:'초기화 관련 내용 감지'}[analysis.status];
   if(!label)return null;
@@ -87,8 +105,9 @@ export function resetNotification(post,analysis) {
   if(analysis.status==='scheduled'&&analysis.time){
     const source=post.context?.length?'게시글과 연결된 스레드의 내용을':'게시글의 내용을';
     const target=midnight?`${midnight[2].toUpperCase()} 기준 다음 자정${analysis.time.relation==='deadline'?'까지':'에'}`:`위 한국시간${analysis.time.relation==='deadline'?'까지':'에'}`;
-    description=`${source} 분석한 결과, ${target} 초기화될 가능성이 있습니다.`;
+    description=analysis.reset_type==='banked'?`${source} 분석한 결과, ${target} 저장형 리셋 지급이 예정되어 있습니다.`:`${source} 분석한 결과, ${target} 초기화될 가능성이 있습니다.`;
   }else if(!report&&!analysis.time)description+=' 원문에서 변환 가능한 초기화 시각은 확인되지 않았습니다.';
+  if(analysis.reset_type==='banked')description='저장형 리셋(초기화권) 지급 안내입니다. '+description;
   const icon=analysis.status==='completed'?'✅':analysis.status==='in_progress'?'🔄':':warning:';
   return `**${icon} ${label}**\n# ${heading}\n-# ${qualifier}\n\n${description}\n\nhttps://x.com/thsottiaux/status/${post.id}`;
 }
