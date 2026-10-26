@@ -92,24 +92,21 @@ export function resetNotification(post,analysis) {
     return encodeEmbedNotification({title:'🔄 Codex 사용량 리셋 감지',url,color:type==='unknown'?0xFEE75C:0x57F287,
       description:`유형: ${names[type]}\n발표 시각: ${announced}\n출처: X (@thsottiaux)\n원문: ${url}`});
   }
-  const labels=analysis.reset_type==='banked'
-    ?{scheduled:'저장형 리셋 지급 예정',in_progress:'저장형 리셋 지급 진행 중',mentioned:'저장형 리셋 관련 소식'}
-    :{scheduled:'초기화 예정 안내',in_progress:'초기화 진행 안내',mentioned:'초기화 관련 소식'};
-  const label=labels[analysis.status];
-  if(!label)return null;
+  if(!['scheduled','in_progress','mentioned'].includes(analysis.status))return null;
   const url=`https://x.com/thsottiaux/status/${post.id}`;
-  const embed={title:'⚠️ 초기화 관련 내용 감지',url,color:0xFEE75C};
-  // 진행 공지의 게시 시각이나 이전 예고를 현재 예정 시각으로 표시하지 않는다.
+  const lines=['**:warning: 초기화 관련 내용 감지**'];
+  // 게시 시각과 과거 예고를 현재 예정 시각으로 표시하지 않는다.
   const timestamp=analysis.status==='scheduled'?analysis.time?.timestamp:null;
   const local=Number.isFinite(timestamp)?formatKoreanTime(timestamp).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
-  if(local)embed.description=`**예정 시각: ${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}${analysis.time.relation==='deadline'?'까지':''} (KST)**`;
-  const summary=discordPlainText(analysis.summary_ko).replace(/[\r\n]+/g,' ');
-  const published=typeof post.date==='string'?publishedTimestamp(post):null;
-  const date=Number.isFinite(published)?formatKoreanTime(published).replace(' (한국시간, KST)',' KST'):null;
-  // 모델 요약과 구별되는 수집 원문이며, 외부 Markdown·멘션은 실행되지 않게 표시한다.
-  const raw=typeof post.text==='string'?post.text.trim():'';
-  const escaped=raw.split(/\r?\n/).map(line=>discordPlainText(line)).join('\n');
-  const description=escaped.length>2900?Array.from(escaped).slice(0,1400).join('')+'…\n(전체 내용은 원문에서 확인)':escaped;
-  const source=description?{author:{name:'Tibo (@thsottiaux)',url},description,color:0x1DA1F2,footer:{text:date?`X · ${date}`:'X'}}:undefined;
-  return encodeEmbedNotification(embed,`**[${label}](<${url}>)**\n- ${summary}`,source);
+  if(local)lines.push(`# 예정 시각: ${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}${analysis.time.relation==='deadline'?'까지':''}`,'-# 한국시간(KST) · 원문 분석');
+  const summary=discordPlainText(analysis.summary_ko.slice(0,600));
+  const qualifier=analysis.status==='scheduled'&&!local?' 원문에서 변환 가능한 초기화 시각은 확인되지 않았습니다.':'';
+  lines.push('',summary+qualifier,'',url);
+  const evidence=typeof analysis.evidence==='string'?analysis.evidence.trim():'';
+  const source=[post,...(post.context??[])].find(item=>typeof item.text==='string'&&evidence&&item.text.includes(evidence));
+  if(source)lines.push(`- ${source===post?'원문':'연결된 글'} 근거: “${discordPlainText(evidence.slice(0,180))}${evidence.length>180?'…':''}”`);
+  const target=analysis.reset_type==='banked'?'저장형 리셋 지급':'초기화';
+  const detail=analysis.status==='mentioned'?'새 초기화 예정이나 전체 완료 공지로 확인된 내용은 아닙니다.':analysis.status==='in_progress'?`${target} 진행 중이라는 안내이며, 전체 완료 안내는 아닙니다.`:`${target} 예정 안내이며, 완료 안내는 아닙니다.`;
+  lines.push('- '+detail);
+  return lines.join('\n');
 }
