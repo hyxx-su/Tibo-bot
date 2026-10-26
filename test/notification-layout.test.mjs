@@ -7,7 +7,7 @@ const post={id:'123',date:'Oct 25, 2026 · 6:06 AM UTC',text:'Synthetic announce
 const card={title:'⚠️ 초기화 관련 내용 감지',url:'https://x.com/thsottiaux/status/123',color:0xFEE75C};
 for(const status of ['scheduled','in_progress','mentioned'])test(`${status}의 시각 미정 알림은 날짜와 KST 줄을 생략한다`,()=>{
   const payload=notificationPayload(resetNotification(post,{status,reset_type:'banked',summary_ko:'초기화권 안내입니다.',time:null,evidence:post.text}));
-  assert.equal(payload.embeds,undefined);assert.ok(payload.content.startsWith('## ⚠️ 초기화 관련 내용 감지 ⚠️\n**['));assert.ok(payload.content.includes('\n- 초기화권 안내입니다.'));
+  assert.equal(payload.embeds,undefined);assert.ok(payload.content.startsWith('**## :warning: 초기화 관련 내용 감지 :warning:**\n**['));assert.ok(payload.content.includes('\n- 초기화권 안내입니다.'));
   assert.doesNotMatch(payload.content,/^# |^-# |시각 미정|15:06/m);assert.ok(payload.content.endsWith('\nhttps://x.com/thsottiaux/status/123'));assert.doesNotMatch(payload.content,/원문 근거|전체 완료 공지로/);
 });
 for(const status of ['in_progress','mentioned'])test(`${status}에 과거 time이 있어도 날짜 줄을 표시하지 않는다`,()=>{
@@ -51,7 +51,7 @@ test('원문 카드의 외부 URL·과대 본문·합산 한도를 거부하고 
 for(const status of ['scheduled','in_progress','completed','mentioned','unrelated'])test(`${status} 제목과 하단은 현재 글의 같은 링크이고 요약은 목록이다`,()=>{
   const content=postNotification(post,{status,title_ko:'새 기능 안내',summary_ko:'새 기능을 안내합니다.',reset_type:'banked',time:null});
   const lines=content.split('\n');const offset=status==='unrelated'?0:1;
-  assert.equal(lines[0].startsWith('## ⚠️'),status!=='unrelated');
+  assert.equal(lines[0].startsWith('**## :warning:'),status!=='unrelated');
   assert.match(lines[offset],/^\*\*\[.+\]\(<https:\/\/x.com\/thsottiaux\/status\/123>\)\*\*$/);
   assert.equal(lines[offset+1],'- 새 기능을 안내합니다.');assert.equal(lines.at(-1),card.url);
   assert.equal(lines.length,offset+3);
