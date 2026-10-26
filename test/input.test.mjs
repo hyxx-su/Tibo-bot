@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readLimitedText,discordPlainText} from '../src/input.js';
 import worker from '../src/index.js';
 import {analyzeReset,resetNotification} from '../src/reset-analysis.js';
+import {notificationPayload} from '../src/notification-payload.js';
 import {analyzePost} from '../src/gemini.js';
 
 await test('분할된 UTF-8 문자를 보존하며 바이트 한도를 적용한다',async()=>{
@@ -21,7 +22,7 @@ await test('큰 Content-Length는 본문을 읽기 전에 취소한다',async()=
 await test('AI 요약은 숨겨진 링크와 Discord 서식을 제거·이스케이프한다',()=>{
   const summary=discordPlainText('[공식 공지](https://attacker.invalid/)\n**초기화** <@123>');
   assert.ok(!summary.includes('https://'));assert.ok(summary.includes('\\[공식 공지\\]'));assert.ok(!summary.includes('\n'));assert.ok(summary.includes('\\*\\*초기화'));
-  const message=resetNotification({id:'1'},{status:'mentioned',summary_ko:'[공지](https://attacker.invalid)'});assert.equal(message.match(/https?:\/\//g).length,1);assert.match(message,/https:\/\/x.com\/thsottiaux\/status\/1$/);
+  const message=resetNotification({id:'1'},{status:'mentioned',summary_ko:'[공지](https://attacker.invalid)'});const payload=notificationPayload(message);assert.equal(payload.content.match(/https?:\/\//g).length,1);assert.ok(payload.content.includes('(<https://x.com/thsottiaux/status/1>)'));assert.equal(payload.embeds[0].url,'https://x.com/thsottiaux/status/1');assert.doesNotMatch(message,/attacker\.invalid/);
 });
 await test('공개 상태 조회는 Gateway 객체를 호출하지 않고 연결 정보를 숨긴다',async()=>{
   let calls=0;const env={GATEWAY:{get(){calls++;throw Error('Must not call');}},GATEWAY_ENABLED:'true'};
