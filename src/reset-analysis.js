@@ -86,12 +86,11 @@ export function resetNotification(post,analysis) {
   if(analysis.status==='completed'){
     const type=resetTypes.includes(analysis.reset_type)?analysis.reset_type:'unknown';
     const names={regular:'정기 리셋 (regular)',banked:'저장형 리셋 (banked)',unknown:'유형 미확인 (unknown)'};
-    const statements={regular:'사용량이 초기화되었습니다.',banked:'저장형 리셋이 지급되었습니다.',unknown:'완료 안내가 있지만 리셋 유형은 확인되지 않았습니다.'};
     const published=typeof post.date==='string'?publishedTimestamp(post):null;
     const announced=Number.isFinite(published)?formatKoreanTime(published).replace(' (한국시간, KST)',' KST'):'확인되지 않음';
     const url=`https://x.com/thsottiaux/status/${post.id}`;
     return encodeEmbedNotification({title:'🔄 Codex 사용량 리셋 감지',url,color:type==='unknown'?0xFEE75C:0x57F287,
-      description:`${statements[type]}\n유형: ${names[type]}\n발표 시각: ${announced}\n출처: X (@thsottiaux)\n원문: ${url}`});
+      description:`유형: ${names[type]}\n발표 시각: ${announced}\n출처: X (@thsottiaux)\n원문: ${url}`});
   }
   const label={scheduled:'초기화 예상 시간 감지',in_progress:'초기화 진행 공지 감지',completed:'초기화 완료 공지 감지',mentioned:'초기화 관련 내용 감지'}[analysis.status];
   if(!label)return null;
