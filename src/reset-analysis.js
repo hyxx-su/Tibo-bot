@@ -110,7 +110,7 @@ export function postNotification(post,analysis) {
   const title=related?titles[analysis.status]:hasText?(analysis.title_ko?.trim()||'Tibo 새 게시글'):'이미지·미디어 게시글';
   const bullets=!hasText&&!related?['Tibo가 이미지·미디어를 첨부한 게시글을 올렸습니다.']:analysis.bullets!==undefined?validatedBullets(analysis.bullets):typeof analysis.summary_ko==='string'&&analysis.summary_ko.trim()?[analysis.summary_ko.trim().slice(0,600)]:[];
   if(!bullets.length)return url;
-  const lines=related?['## ⚠️ 초기화 관련 내용 감지 ⚠️']:[];
+  const lines=related?['**## :warning: 초기화 관련 내용 감지 :warning:**']:[];
   lines.push(`**[${discordPlainText(title.slice(0,60))}](<${url}>)**`,...bullets.map(item=>`- ${discordPlainText(item)}`));
   // 게시 시각과 과거 예고를 현재 예정 시각으로 표시하지 않는다.
   const timestamp=analysis.status==='scheduled'?analysis.time?.timestamp:null;
