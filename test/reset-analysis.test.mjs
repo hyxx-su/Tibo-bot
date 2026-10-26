@@ -45,7 +45,7 @@ try{
   globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});
   await test('원문의 시간 표현만 변환해 초기화 예정 알림에 넣는다',async()=>{
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
-    assert.equal(notificationPayload(resetNotification(post,analysis)).embeds[0].description,'**예정 시각: 10월 27일 01:00 (KST)**');
+    assert.match(resetNotification(post,analysis),/# 예정 시각: 10월 27일 01:00\n-# 한국시간\(KST\)/);
   });
   await test('추론용 응답 조각은 알림과 JSON 해석에 섞지 않는다',async()=>{
     const savedFetch=globalThis.fetch;
@@ -59,11 +59,11 @@ try{
     const reply={id:'124',date:'Oct 25, 2026 · 3:40 AM UTC',text:'By midnight PST',context:[{id:'123',date:'Oct 25, 2026 · 3:39 AM UTC',text:'Day 20/ Rest and reset'}]};
     const saved=result;result={status:'scheduled',summary_ko:'스레드 문맥상 자정까지 초기화 예정으로 해석됩니다.',evidence:reply.context[0].text,time_expression:reply.text};
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},reply);const message=resetNotification(reply,analysis);
-    const payload=notificationPayload(message);assert.equal(payload.content,'**[초기화 예정 안내](<https://x.com/thsottiaux/status/124>)**\n- 스레드 문맥상 자정까지 초기화 예정으로 해석됩니다.');assert.deepEqual(payload.embeds[0],{title:'⚠️ 초기화 관련 내용 감지',description:'**예정 시각: 10월 25일 17:00까지 (KST)**',color:0xFEE75C,url:'https://x.com/thsottiaux/status/124'});result=saved;
+    assert.match(message,/# 예정 시각: 10월 25일 17:00까지\n-# 한국시간\(KST\)/);assert.ok(message.includes('스레드 문맥상 자정까지 초기화 예정으로 해석됩니다.'));assert.equal(notificationPayload(message).embeds,undefined);result=saved;
   });
   await test('모델이 만든 원문 밖 시각은 버린다',async()=>{
     result={...result,time_expression:'2026-10-30 at 10am UTC'};
-    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);assert.equal(analysis.time,null);assert.equal(notificationPayload(resetNotification(post,analysis)).embeds[0].description,undefined);
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},post);assert.equal(analysis.time,null);assert.doesNotMatch(resetNotification(post,analysis),/^# |^-# /m);
   });
   await test('상대 기한은 게시 시각에서 계산하고 실행 시각처럼 안내하지 않는다',async()=>{
     const saved=result;
@@ -72,7 +72,7 @@ try{
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);
     assert.equal(analysis.time.timestamp,published+3*3600000);
     assert.equal(analysis.time.relation,'deadline');
-    assert.equal(notificationPayload(resetNotification(current,analysis)).embeds[0].description,'**예정 시각: 10월 26일 00:00까지 (KST)**');result=saved;
+    assert.match(resetNotification(current,analysis),/# 예정 시각: 10월 26일 00:00까지/);result=saved;
   });
   for(const status of ['mentioned','unrelated'])await test(`${status} 결과에 모델이 시간을 끼워 넣어도 예정 시각으로 쓰지 않는다`,async()=>{
     const saved=result;result={status,summary_ko:'초기화가 확정되지 않았습니다.',evidence:post.text,time_expression:'tomorrow at 9am PT'};
@@ -94,7 +94,7 @@ try{
   await test('진행 공지를 완료로 표시하거나 인용한 과거 기한을 현재 시각으로 표시하지 않는다',async()=>{
     const saved=result;result={status:'in_progress',summary_ko:'Tibo가 초기화 반영 진행 중이라고 안내했습니다.',evidence:'Still propagating.',time_expression:'By midnight PST'};
     const current={id:'125',date:'Oct 25, 2026 · 6:06 AM UTC',text:'Still propagating.',context:[{id:'124',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC'}]};
-    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);assert.equal(analysis.time,null);const content=resetNotification(current,analysis);assert.match(notificationPayload(content).content,/초기화 진행 안내/);assert.equal(notificationPayload(content).embeds[0].description,undefined);assert.doesNotMatch(notificationPayload(content).content,/초기화 완료|17:00|15:06/);result=saved;
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);assert.equal(analysis.time,null);const content=resetNotification(current,analysis);assert.match(content,/초기화 진행 중/);assert.equal(notificationPayload(content).embeds,undefined);assert.doesNotMatch(notificationPayload(content).content,/초기화 완료|17:00|15:06/);result=saved;
   });
   await test('완료 공지와 무관한 글을 예정으로 표시하지 않는다',()=>{
     assert.equal(notificationPayload(resetNotification(post,{status:'completed',reset_type:'regular',summary_ko:'초기화 완료'})).embeds[0].color,0x57F287);

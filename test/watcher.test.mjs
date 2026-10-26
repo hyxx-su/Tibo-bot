@@ -70,7 +70,7 @@ try{
   });
   await test('초기화 글은 한국시간 설명과 링크를 한 메시지로만 발송한다',async()=>{
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce.endsWith('102'));
-    assert.equal(sent.length,1);assert.equal(sent[0].body.nonce,'r102');assert.equal((sent[0].body.flags??0)&4,0);assert.equal(sent[0].body.embeds[0].description,'**예정 시각: 10월 27일 01:00 (KST)**');assert.ok(sent[0].body.content.includes('(<https://x.com/thsottiaux/status/102>)'));assert.equal(sent[0].body.embeds[0].color,0xFEE75C);
+    assert.equal(sent.length,1);assert.equal(sent[0].body.nonce,'r102');assert.equal((sent[0].body.flags??0)&4,0);assert.match(sent[0].body.content,/# 예정 시각: 10월 27일 01:00/);assert.ok(sent[0].body.content.includes('\nhttps://x.com/thsottiaux/status/102\n'));assert.equal(sent[0].body.embeds,undefined);
   });
   await test('휴식 의미의 reset에는 링크만 보내고 초기화 공지는 보내지 않는다',async()=>{
     posts=[{id:'103',text:'Day 20. Rest and reset.'},...posts];await poll();await waitFor(async()=>await settled('103'));await waitPoll();
@@ -105,7 +105,7 @@ try{
     posts=[{id:'99',text:'Day 1/ Rest and reset'},{id:'109',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC'}];
     await poll();await waitFor(async()=>await settled('109'));await waitPoll();
     const saved=await row('109');assert.equal(JSON.parse(saved.context_json)[0].id,'99');
-    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r109');assert.equal(sent.length,1);assert.equal(sent[0].body.embeds[0].description,'**예정 시각: 10월 25일 17:00까지 (KST)**');
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r109');assert.equal(sent.length,1);assert.match(sent[0].body.content,/# 예정 시각: 10월 25일 17:00까지/);
     assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l99').length,0);
   });
   await test('관리자 재검증은 지정한 실제 글만 저장하고 완료 이력을 유지한다',async()=>{
@@ -137,7 +137,7 @@ try{
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('114'));assert.equal(sent.length,1);assert.equal(sent[0].body.content,'');assert.equal(sent[0].body.embeds[0].color,0x57F287);assert.match(sent[0].body.embeds[0].description,/정기 리셋/);assert.match(sent[0].body.embeds[0].url,/status\/114$/);
   });
   await test('진행 중인 인용 공지를 완료 메시지로 보내지 않는다',async()=>{
-    posts=[{id:'115',text:'Still propagating.',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>await settled('115'));await waitPoll();const sent=calls.find(c=>c.kind==='discord'&&c.body.nonce==='r115');assert.match(sent.body.content,/초기화 진행 안내/);assert.equal(sent.body.embeds[0].description,undefined);assert.doesNotMatch(sent.body.content,/초기화 완료/);
+    posts=[{id:'115',text:'Still propagating.',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>await settled('115'));await waitPoll();const sent=calls.find(c=>c.kind==='discord'&&c.body.nonce==='r115');assert.match(sent.body.content,/초기화 진행 중/);assert.equal(sent.body.embeds,undefined);assert.doesNotMatch(sent.body.content,/초기화 완료/);
   });
   await test('다른 작성자의 인용 본문은 제외하되 새 글 자체는 Gemini로 분석한다',async()=>{
     const before=calls.filter(c=>c.kind==='ai').length;posts=[{id:'116',text:'무관한 인용',quote:{id:'109',text:'By midnight PST',author:'someone'}},...posts];await poll();await waitFor(async()=>await settled('116'));await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai').length,before+1);assert.deepEqual(calls.filter(c=>c.kind==='ai').at(-1).context,[]);assert.equal(JSON.parse((await row('116')).analysis_json).status,'unrelated');
