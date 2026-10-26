@@ -15,7 +15,7 @@ export function resetQuestionIntent(value) {
   if(/(컴퓨터|휴대폰|핸드폰|윈도우|공장|비밀번호|설정|버튼|파일|기기|명령|프롬프트|지시|멘션|http|<@)/.test(text))return result('help');
   if(/(내계정|내사용량|내한도|내쿼터)/.test(text))return result('personal');
   const topic=/(초기화|리셋|reset|사용량|한도|쿼터)/.test(text);
-  if(topic&&/(해줘|해주라|해줄래|시켜|해달라|실행해)/.test(text)&&!/(알려|설명)/.test(text))return result('manual');
+  if(topic&&/(해줘|해주라|해줄래|시켜|해달라|실행해)/.test(text)&&!/(알려|설명|언제|몇시|시간)/.test(text))return result('manual');
   // 문장 전체를 모델에 보내지 않고 주제·의문 표현만 판별한다. 생략형은 짧은 질문으로 제한한다.
   const short=text.replace(/^(?:(?:그럼|그래서|혹시|진짜|오늘|내일|모레|어제|은|는|아직|벌써|이제|다|좀|또))*/,'');
   if(!topic&&!/^(언제|몇시|몇분|몇시간|얼마나|얼마|끝|완료|됐|했|되었|남|있|없|하나|해|할|진행|반영)/.test(short))return result('help');
