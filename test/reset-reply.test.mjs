@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
-import {resetQuestionJob,resetQuestionIntent,resetQuestionReply,repeatQuestionReply,processResetQuestionJob,dispatchResetQuestion} from '../src/reset-reply.js';
+import {resetQuestionJob,resetQuestionIntent,resetQuestionFingerprint,resetQuestionReply,repeatQuestionReply,processResetQuestionJob,dispatchResetQuestion} from '../src/reset-reply.js';
+import {noAnnouncementReplies,selectNoAnnouncementReplyIndex} from '../src/reset-replies.js';
 import {DiscordGateway} from '../src/gateway.js';
 import {DiscordCommandGuard,claimResetQuestion} from '../src/command-guard.js';
 
@@ -28,6 +29,31 @@ for(const change of [{author:{id:'90',bot:true}},{webhook_id:'2'},{guild_id:unde
 const state={baseline_id:'1',last_success:now,last_error:null};
 const post=(id,status,date='2026-10-26T02:00:00Z',time=null)=>({id,published_at:date,analysis_json:JSON.stringify({status,time})});
 const reply=(posts=[],extra={})=>resetQuestionReply({state,posts,pending:false,...extra},now);
+test('200개 답변이 모두 고유하고 선택 가능하며 최근 선택 20개를 피한다',()=>{
+  assert.equal(noAnnouncementReplies.length,200);assert.equal(new Set(noAnnouncementReplies).size,200);
+  const selected=new Set();for(let i=0;i<200;i++)selected.add(selectNoAnnouncementReplyIndex([],()=>(i+0.5)/200));assert.equal(selected.size,200);
+  const recent=Array.from({length:20},(_,i)=>i);
+  for(let i=0;i<180;i++)assert.ok(!recent.includes(selectNoAnnouncementReplyIndex(recent,()=>(i+0.5)/180)));
+  for(const text of noAnnouncementReplies){assert.doesNotMatch(text,/[\r\n]|<@|https?:/);assert.ok(text.length<200);}
+});
+test('200개 문구는 오늘 공지 미확인에만 쓰고 다른 날짜·예정·완료·장애에는 섞지 않는다',()=>{
+  for(let replyIndex=0;replyIndex<200;replyIndex++){
+    const ask=(posts=[],extra={},question={})=>resetQuestionReply({state,posts,pending:false,...extra},now,{replyIndex,...question});
+    assert.equal(ask(),noAnnouncementReplies[replyIndex]);
+    assert.equal(ask([post('100','completed','2026-10-25T02:00:00Z')]),noAnnouncementReplies[replyIndex]);
+    assert.match(ask([],{}, {dayOffset:1}),/내일 초기화 공지는 못/);
+    assert.match(ask([],{}, {dayOffset:-1}),/어제 초기화 공지는 못/);
+    for(const status of ['scheduled','in_progress','completed','mentioned'])assert.ok(!noAnnouncementReplies.includes(ask([post('100',status)])));
+    assert.ok(!noAnnouncementReplies.includes(ask([],{pending:true})));
+    assert.ok(!noAnnouncementReplies.includes(ask([],{state:{...state,last_error:'failed'}})));
+  }
+});
+test('문장 해시는 원문을 노출하지 않고 띄어쓰기·문장부호·표현 차이를 보존한다',async()=>{
+  const base=await resetQuestionFingerprint(source.content);assert.match(base,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal(await resetQuestionFingerprint(source.content.normalize('NFD')),base);
+  assert.equal(await resetQuestionFingerprint(source.content),base);
+  for(const content of ['Tibo야 초기화 있니?','Tibo야 초기화있니','Tibo야 언제 해?','Tibo야 초기화있니? '])assert.notEqual(await resetQuestionFingerprint(content),base);
+});
 test('예고는 한국시간 오늘·내일과 기한·예정 시각을 한 줄로 구분한다',()=>{
   assert.equal(reply([post('100','scheduled',undefined,{timestamp:Date.parse('2026-10-26T08:00:00Z'),relation:'deadline'})]),'있지. 오늘 17:00(KST)까지 초기화 예정이야.');
   assert.equal(reply([post('100','scheduled',undefined,{timestamp:Date.parse('2026-10-26T16:00:00Z')})]),'있지. 내일 01:00(KST)쯤 초기화 예정이야.');
@@ -93,6 +119,16 @@ try{
   await test('실제 DB 조회 결과를 한 줄 답장으로 보내며 모델 호출과 멘션을 만들지 않는다',async()=>{
     assert.equal((await process()).ack,true);const sent=calls.at(-1);assert.equal(sent.content,'아직 오늘 초기화 공지는 못 봤네.');assert.deepEqual(sent.allowed_mentions,{parse:[],replied_user:false});assert.equal(sent.message_reference.message_id,'100');assert.equal(sent.nonce,'q100');assert.equal(sent.enforce_nonce,true);assert.doesNotMatch(sent.content,/[\r\n]/);
   });
+  await test('선택한 문구는 재시도에도 유지되며 다른 사람이 같은 말을 해도 재질문 문구가 없다',async()=>{
+    const f=guardFixture();const phrase=await resetQuestionFingerprint(source.content);
+    const first=await f.claim('401','30','90','20',phrase);await process({messageId:'401',...first});const original=calls.at(-1).content;
+    assert.equal(original,noAnnouncementReplies[first.replyIndex]);
+    await process({messageId:'401',...first},2);assert.equal(calls.at(-1).content,original);
+    const other=await f.claim('402','30','91','20',phrase);await process({messageId:'402',userId:'91',...other});assert.equal(calls.at(-1).content,noAnnouncementReplies[other.replyIndex]);assert.notEqual(other.replyIndex,first.replyIndex);
+    const repeated=await f.claim('403','30','90','20',phrase);await process({messageId:'403',...repeated});assert.equal(calls.at(-1).content,noAnnouncementReplies[repeated.replyIndex]+' 아까도 물어봤지? 😏');
+    const changed=await f.claim('404','30','90','20',await resetQuestionFingerprint('Tibo야 언제 해?'));await process({messageId:'404',...changed});assert.equal(calls.at(-1).content,noAnnouncementReplies[changed.replyIndex]);
+    const before=calls.length;await process({replyIndex:200});await process({replyIndex:-1});assert.equal(calls.length,before);
+  });
   await test('인사와 일반 대화에는 재질문 문구 없이 초기화 질문 안내만 보낸다',async()=>{
     for(const text of ['반갑다','안녕','점심 뭐 먹을까?']){
       const question=resetQuestionIntent(text);await process({...question,repeatCount:3});
@@ -118,12 +154,35 @@ function guardFixture(initial){
   const state=new Map(Object.entries(initial??{}));let pending=Promise.resolve();
   const ctx={storage:{async get(key){return structuredClone(state.get(key));},async put(key,value){state.set(key,structuredClone(value));}},blockConcurrencyWhile(fn){const job=pending.then(fn);pending=job.catch(()=>{});return job;}};
   const guard=new DiscordCommandGuard(ctx);
-  return {state,claim:async(messageId,channelId='30',userId='90',guildId='20')=>(await guard.fetch(new Request('https://guard/chat-claim',{method:'POST',body:JSON.stringify({messageId,guildId,channelId,userId})}))).json()};
+  return {state,claim:async(messageId,channelId='30',userId='90',guildId='20',questionHash='a'.repeat(43))=>(await guard.fetch(new Request('https://guard/chat-claim',{method:'POST',body:JSON.stringify({messageId,guildId,channelId,userId,questionHash})}))).json()};
 }
 await test('같은 메시지만 중복 억제하고 연속 재질문은 답하며 사용자·채널·서버를 구분한다',async()=>{
   const f=guardFixture();const result=await Promise.all([f.claim('100'),f.claim('100'),f.claim('101')]);assert.deepEqual(result.map(r=>r.result),['accepted','duplicate','accepted']);assert.equal(result[2].repeatCount,1);
   assert.equal((await f.claim('102','31')).repeatCount,0);assert.equal((await f.claim('103','30','91')).repeatCount,0);assert.equal((await f.claim('104','30','90','21')).repeatCount,0);
   assert.equal((await guardFixture(Object.fromEntries(f.state)).claim('105')).repeatCount,2);
+});
+await test('동일 사용자·동일 문장만 재질문이며 다른 문장은 다른 날짜를 물어도 구분한다',async()=>{
+  const f=guardFixture();const a=await resetQuestionFingerprint('Tibo야 초기화있니?'),b=await resetQuestionFingerprint('Tibo야 내일 초기화있니?');
+  assert.equal((await f.claim('100','30','90','20',a)).repeatCount,0);
+  assert.equal((await f.claim('101','30','91','20',a)).repeatCount,0);
+  assert.equal((await f.claim('102','30','90','20',b)).repeatCount,0);
+  assert.equal((await f.claim('103','30','90','20',a)).repeatCount,1);
+  assert.equal((await f.claim('104','30','91','20',a)).repeatCount,1);
+  const restarted=guardFixture(Object.fromEntries(f.state));assert.equal((await restarted.claim('105','30','90','20',b)).repeatCount,1);
+  assert.doesNotMatch(JSON.stringify(Object.fromEntries(f.state)),/초기화|Tibo/);
+});
+await test('재시작 후에도 채널의 최근 문구를 피하고 기존 해시 없는 기록은 재질문에 포함하지 않는다',async()=>{
+  const f=guardFixture();const first=await f.claim('100');delete f.state.get('chat-budget').seen[0].phrase;
+  const restarted=guardFixture(Object.fromEntries(f.state));const next=await restarted.claim('101');assert.equal(next.repeatCount,0);assert.notEqual(next.replyIndex,first.replyIndex);
+  const recent=[first.replyIndex,next.replyIndex];
+  for(let i=0;i<40;i++){
+    for(const entry of restarted.state.get('chat-budget').seen)entry.acceptedAt=Date.now()-20000;
+    const result=await restarted.claim(String(200+i),'30',String(300+i));assert.equal(result.result,'accepted');assert.ok(!recent.slice(-20).includes(result.replyIndex));recent.push(result.replyIndex);
+  }
+});
+test('최대 길이 식별자와 해시를 가진 500개 기록도 저장 값 크기 상한 안에 든다',()=>{
+  const record={id:'1'.repeat(20),guildId:'1'.repeat(20),channelId:'1'.repeat(20),userId:'1'.repeat(20),acceptedAt:Date.now(),expiresAt:Date.now()+600000,phrase:'a'.repeat(43),choice:199};
+  assert.ok(Buffer.byteLength(JSON.stringify({day:'2026-10-26',count:1000,nextAt:Date.now(),seen:Array(500).fill(record)}))<128*1024);
 });
 await test('5분 이후는 새 질문이며 10초 과다 호출과 하루 상한만 제한한다',async()=>{
   const f=guardFixture();await f.claim('100');f.state.get('chat-budget').seen[0].acceptedAt=Date.now()-300001;assert.equal((await f.claim('101')).repeatCount,0);
@@ -148,7 +207,7 @@ await test('Gateway는 중복 제한 후 즉시 응답하고 정상 질문을 Qu
   config.DB={prepare(){return {bind(){return this;}};},async batch(){reads++;return [{results:[]}];}};
   const gateway=new DiscordGateway(ctx,config);await initialized;
   gateway.receive({op:0,t:'MESSAGE_CREATE',d:{...source,timestamp:new Date().toISOString()}});gateway.receive({op:0,t:'MESSAGE_CREATE',d:{...source,content:'일반 채팅',timestamp:new Date().toISOString()}});await Promise.all(waits);
-  assert.equal(reads,1);assert.equal(jobs.length,0);assert.equal(guards.length,1);assert.doesNotMatch(JSON.stringify({jobs,guards}),/초기화있니/);
+  assert.equal(reads,1);assert.equal(jobs.length,0);assert.equal(guards.length,1);assert.equal(guards[0].questionHash,await resetQuestionFingerprint(source.content));assert.doesNotMatch(JSON.stringify({jobs,guards}),/초기화있니/);
   let identified;gateway.ws={send(value){identified=JSON.parse(value);}};gateway.receive({op:10,d:{heartbeat_interval:1000}});assert.equal(identified.d.intents,33281);gateway.disconnect();
 });
 await test('질문 제한 객체가 없거나 실패하면 외부 질문 처리를 허용하지 않는다',async()=>{
