@@ -36,6 +36,8 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 'Rest and reset' 단독은 휴식일 수 있다. 같은 스레드의 작성자가 'By midnight PST' 같은 기한을 덧붙이면 초기화 예고로 해석하고, 요약에 스레드 문맥에 따른 해석임을 표시한다. 원문에 없는 제품명은 덧붙이지 않는다.
 - 초기화와 기능 배포가 섞여 있으면 현재 완료 표현이 어느 대상을 가리키는지 확인한다. 기능만 완료되고 초기화가 진행 중이라면 in_progress다.
 - 'and reset', 'reset day', 'a reset for everyone' 같은 명사형 선언 뒤에 'Enjoy'가 있어도 완료 동작·상태의 근거는 아니다. 실행 시점이 없는 선언은 mentioned로 보류한다. 반면 초기화를 가리키는 'It is done', 'has been applied', 'fully propagated'는 완료 근거다. 단순히 독자에게 즐기라고 했다는 이유로 completed로 승격하지 않는다.
+- 완료 공지에 반드시 all/everyone이라는 단어가 있어야 하는 것은 아니다. 초기화를 완료했다는 명시적 문장이 있고 일부만 적용했다는 제한이 없다면 완료 안내로 해석한다. 수사적인 질문이나 농담이 앞에 있어도 뒤의 명확한 완료 문장을 무시하지 않는다. 반대로 실제 완료 여부를 묻기만 하는 질문에는 이 규칙을 적용하지 않는다.
+- Tibo의 일일 업데이트에서 'Day 7/ More to come… and a reset.'처럼 reset을 선언하면 사용량 초기화 관련 mentioned다. 이런 선언을 비유적인 주변 문장 때문에 무관한 요리·잡담으로 지우거나, 반대로 완료로 확대하지 않는다. 비밀번호·기기 등 다른 초기화 대상이 명시된 경우와 앞서 설명한 'Rest and reset'의 휴식 중의성은 별도로 구분한다.
 
 출력 규칙
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
@@ -44,7 +46,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
       contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[]})}]}],
-      generationConfig:{temperature:0,maxOutputTokens:1024,responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','summary_ko','evidence','time_expression']}},
+      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','summary_ko','evidence','time_expression']}},
     }),
   });
   if(!response.ok){await response.body?.cancel();throw new Error('Reset analysis HTTP '+response.status);}
