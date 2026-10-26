@@ -150,11 +150,12 @@ Discord 앱을 `bot`, `applications.commands` 스코프와 채널 보기·메시
 
 ```sh
 npm run deploy
-npm run register:command -- --application-id YOUR_APP_ID --guild-id YOUR_GUILD_ID
 npm run register:command -- --application-id YOUR_APP_ID --global
 ```
 
 명령 등록에는 `.dev.vars`의 봇 토큰을 사용합니다. 자동화에서는 `DISCORD_BOT_TOKEN_FILE`로 보호된 파일을 지정하고 `node scripts/register-command.mjs ...`를 실행할 수도 있습니다. 지정한 서버 또는 `--global` 범위의 `/상태`·`/알림설정`을 생성·갱신합니다. 같은 범위에 남아 있는 `/검증`은 개별 삭제하여 재등록되지 않도록 합니다. 다른 이름의 명령은 건드리지 않습니다.
+
+운영 봇은 전역 명령만 등록합니다. 서버별로 다시 등록할 필요가 없습니다. 개발용 서버에만 명령을 등록하려면 위 전역 등록 대신 `--guild-id YOUR_GUILD_ID`를 사용하세요. 같은 앱·이름의 명령을 전역과 서버 범위에 모두 등록하면 중복으로 표시될 수 있습니다. 개발에서 운영으로 전환할 때는 전역 명령이 생성된 것을 확인한 뒤 기존 서버 전용 `/상태`·`/알림설정`을 해당 명령 ID로 개별 삭제합니다. 전역 등록 스크립트는 다른 범위의 명령을 자동으로 삭제하지 않습니다.
 
 Discord 개발자 포털의 Interactions Endpoint URL을 아래 형태로 설정합니다. 실제 서명 확인 요청이 통과해야 저장됩니다.
 
