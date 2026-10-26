@@ -104,5 +104,12 @@ export function resetNotification(post,analysis) {
   const local=Number.isFinite(timestamp)?formatKoreanTime(timestamp).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
   if(local)embed.description=`**예정 시각: ${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}${analysis.time.relation==='deadline'?'까지':''} (KST)**`;
   const summary=discordPlainText(analysis.summary_ko).replace(/[\r\n]+/g,' ');
-  return encodeEmbedNotification(embed,`**[${label}](<${url}>)**\n- ${summary}`);
+  const published=typeof post.date==='string'?publishedTimestamp(post):null;
+  const date=Number.isFinite(published)?formatKoreanTime(published).replace(' (한국시간, KST)',' KST'):null;
+  // 모델 요약과 구별되는 수집 원문이며, 외부 Markdown·멘션은 실행되지 않게 표시한다.
+  const raw=typeof post.text==='string'?post.text.trim():'';
+  const escaped=raw.split(/\r?\n/).map(line=>discordPlainText(line)).join('\n');
+  const description=escaped.length>2900?Array.from(escaped).slice(0,1400).join('')+'…\n(전체 내용은 원문에서 확인)':escaped;
+  const source=description?{author:{name:'Tibo (@thsottiaux)',url},description,color:0x1DA1F2,footer:{text:date?`X · ${date}`:'X'}}:undefined;
+  return encodeEmbedNotification(embed,`**[${label}](<${url}>)**\n- ${summary}`,source);
 }
