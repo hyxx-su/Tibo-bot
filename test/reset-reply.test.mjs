@@ -93,6 +93,12 @@ try{
   await test('실제 DB 조회 결과를 한 줄 답장으로 보내며 모델 호출과 멘션을 만들지 않는다',async()=>{
     assert.equal((await process()).ack,true);const sent=calls.at(-1);assert.equal(sent.content,'아직 오늘 초기화 공지는 못 봤네.');assert.deepEqual(sent.allowed_mentions,{parse:[],replied_user:false});assert.equal(sent.message_reference.message_id,'100');assert.equal(sent.nonce,'q100');assert.equal(sent.enforce_nonce,true);assert.doesNotMatch(sent.content,/[\r\n]/);
   });
+  await test('인사와 일반 대화에는 재질문 문구 없이 초기화 질문 안내만 보낸다',async()=>{
+    for(const text of ['반갑다','안녕','점심 뭐 먹을까?']){
+      const question=resetQuestionIntent(text);await process({...question,repeatCount:3});
+      assert.equal(calls.at(-1).content,'초기화 관련 질문에만 답변할 수 있어. 초기화 일정이나 진행 상태가 궁금하면 물어봐!');
+    }
+  });
   await test('봇이 나간 서버·만료된 질문·비활성화 상태는 보내지 않는다',async()=>{
     const before=calls.length;await process({issuedAt:Date.now()-121000});env.RESET_CHAT_ENABLED='false';await process();env.RESET_CHAT_ENABLED='true';await db.prepare("UPDATE guild_settings SET active=0 WHERE guild_id='20'").run();await process();assert.equal(calls.length,before);await db.prepare("UPDATE guild_settings SET active=1 WHERE guild_id='20'").run();
   });
