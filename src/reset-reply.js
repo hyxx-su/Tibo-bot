@@ -91,7 +91,7 @@ function resetQuestionStatusReply({state,posts,pending},now,question) {
   if(question.intent==='timezone'){
     if(['PST','PDT'].includes(question.zone)&&Number.isInteger(question.hour)&&question.hour>=0&&question.hour<24){
       const hour=question.hour+(question.zone==='PST'?17:16);
-      return `${question.zone} ${String(question.hour).padStart(2,'0')}:00는 한국시간 ${hour>=24?'다음 날':'같은 날'} ${String(hour%24).padStart(2,'0')}:00야. 실제 초기화 일정과는 별개인 시간 변환이야.`;
+      return `${question.zone} ${String(question.hour).padStart(2,'0')}:00이면 한국시간 ${hour>=24?'다음 날':'같은 날'} ${String(hour%24).padStart(2,'0')}:00야. 실제 초기화 일정과는 별개인 시간 변환이야.`;
     }
     return '원문 게시 날짜와 시간대가 필요해. PST는 UTC−8, PDT는 UTC−7이고 PT는 날짜에 따라 달라서, 원문 없이 시각을 확정하진 않을게.';
   }
@@ -113,13 +113,13 @@ function resetQuestionStatusReply({state,posts,pending},now,question) {
   const sourceLink=signal=>`https://x.com/thsottiaux/status/${signal.id}`;
   if(question.intent==='history'){
     const completed=signals.find(signal=>signal.analysis.status==='completed');
-    return completed?`최근 100개 글·7일 범위에서 찾은 마지막 완료 공지는 ${formatKoreanTime(completed.at)}(KST)에 올라왔어. 실제 계정 반영 시각과는 달라. ${sourceLink(completed)}`:'최근 100개 글·7일 범위에서는 완료 공지를 찾지 못했어.';
+    return completed?`최근 100개 글·7일 범위에서 찾은 마지막 완료 공지는 ${formatKoreanTime(completed.at)}에 올라왔어. 실제 계정 반영 시각과는 달라. ${sourceLink(completed)}`:'최근 100개 글·7일 범위에서는 완료 공지를 찾지 못했어.';
   }
   if(['source','coverage','comparison','change'].includes(question.intent)){
     const labels={scheduled:'초기화 예고',completed:'초기화 완료',in_progress:'초기화 반영 중',mentioned:'초기화 관련 언급'};
     if(question.intent==='coverage')return '적용 대상이나 한도 종류는 저장된 분석만으로 확인 못 해.'+(newest?` 해당 공지에서 확인해 줘. ${sourceLink(newest)}`:' 확인할 초기화 공지도 아직 못 찾았어.');
     const lead=question.intent==='comparison'?'이전 답변과의 변경 여부는 단정할 수 없어. ':question.intent==='change'?'취소·연기 여부는 현재 분류만으로 확정할 수 없어. ':'';
-    return lead+(newest?`저장된 최신 관련 글은 ${formatKoreanTime(newest.at)}(KST)이야. 분석은 ‘${labels[newest.analysis.status]??'확인 불가'}’로 되어 있어. 원문: ${sourceLink(newest)}`:'확인할 초기화 관련 원문은 아직 못 찾았어.');
+    return lead+(newest?`저장된 최신 관련 글은 ${formatKoreanTime(newest.at)}이야. 저장된 분류는 ‘${labels[newest.analysis.status]??'확인 불가'}’야. 원문: ${sourceLink(newest)}`:'확인할 초기화 관련 원문은 아직 못 찾았어.');
   }
   if(question.intent==='deadline')return '“까지·이전”은 완료 기한이라 그보다 일찍 될 수도 있어. 정확한 실행 시각이나 이미 완료됐다는 뜻은 아니야.'+(newest?.analysis.status==='scheduled'&&newest.analysis.time?.relation==='deadline'?' 최근 예고도 기한으로 해석됐어.':' 지금 글에 그 기한이 있는지는 원문을 확인해야 해.');
   const scope=Number.isInteger(question.dayOffset)?koreanDay(now+question.dayOffset*dayMs):null;
