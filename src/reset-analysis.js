@@ -1,4 +1,3 @@
-import {encodeEmbedNotification} from './notification-payload.js';
 import {readLimitedText,discordPlainText} from './input.js';
 import {publishedTimestamp,parseResetTime,formatKoreanTime} from './reset-time.js';
 
@@ -54,12 +53,13 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
 - reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
 - type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
-- summary_ko: 작성자가 안내한 내용을 한국어 한 문장으로 요약한다. 대상·범위·예정/진행/완료·부정·불확실성을 보존한다. 개별 사용자 계정의 실제 반영을 직접 검증했다고 쓰지 않는다. 완료 시각이나 기존 예상보다 빠르다는 비교를 만들어 쓰지 않는다.
+- title_ko: 현재 글의 내용을 한국어 제목 60자 이내로 요약한다. 링크·Markdown·멘션은 넣지 않는다. 초기화와 무관한 글도 실제 주제를 제목으로 쓰며, 연결 문맥을 새 공지로 바꾸지 않는다. 본문이 비어 있으면 “이미지·미디어 게시글”로 쓴다.
+- summary_ko: 초기화와 무관한 글도 “무관한 글”이라고만 쓰지 말고 실제 내용을 요약한다. 본문이 없으면 첨부 게시글이라는 사실만 쓰며 보이지 않는 이미지를 설명하지 않는다. 작성자가 안내한 내용을 한국어 한 문장으로 요약한다. 대상·범위·예정/진행/완료·부정·불확실성을 보존한다. 개별 사용자 계정의 실제 반영을 직접 검증했다고 쓰지 않는다. 완료 시각이나 기존 예상보다 빠르다는 비교를 만들어 쓰지 않는다.
 - evidence: 관련 상태라면 현재 글 또는 context 한 글에 실제 존재하는 연속된 구절을 그대로 복사한다. completed/in_progress는 반드시 현재 text의 구절을 사용한다. 부정·일부·진행 중이라는 제한을 잘라 반대 의미의 근거로 제시하지 않는다. unrelated는 빈 문자열이다.
 - time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
       contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[]})}]}],
-      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','reset_type','type_evidence','summary_ko','evidence','time_expression']}},
+      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},summary_ko:{type:'STRING'},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','reset_type','type_evidence','title_ko','summary_ko','evidence','time_expression']}},
     }),
   });
   if(!response.ok){await response.body?.cancel();throw new Error('Reset analysis HTTP '+response.status);}
@@ -67,6 +67,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   const text=(data.candidates?.[0]?.content?.parts??[]).filter(p=>!p.thought).map(p=>p.text??'').join('');
   const result=JSON.parse(text);
   if(!statuses.includes(result.status)||['summary_ko','evidence','time_expression'].some(k=>typeof result[k]!=='string'))throw new Error('Invalid reset analysis');
+  if(result.title_ko!==undefined&&typeof result.title_ko!=='string')throw new Error('Invalid post title');
   const sources=[post,...(post.context??[])];
   const resetType=result.reset_type??'unknown',typeEvidence=result.type_evidence??'';
   if(!resetTypes.includes(resetType)||typeof typeEvidence!=='string')throw new Error('Invalid reset type');
@@ -79,34 +80,30 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
   const time=timeSource&&typeof timeSource.date==='string'?parseResetTime(expression,publishedTimestamp(timeSource)):null;
   if(time&&/\b(by|before)\b|까지/i.test(expression))time.relation='deadline';
-  return {...result,reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
+  return {...result,title_ko:result.title_ko?.trim().slice(0,60)??'',reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
 }
 
-export function resetNotification(post,analysis) {
-  if(analysis.status==='completed'){
-    const type=resetTypes.includes(analysis.reset_type)?analysis.reset_type:'unknown';
-    const names={regular:'정기 리셋 (regular)',banked:'저장형 리셋 (banked)',unknown:'유형 미확인 (unknown)'};
-    const published=typeof post.date==='string'?publishedTimestamp(post):null;
-    const announced=Number.isFinite(published)?formatKoreanTime(published).replace(' (한국시간, KST)',' KST'):'확인되지 않음';
-    const url=`https://x.com/thsottiaux/status/${post.id}`;
-    return encodeEmbedNotification({title:'🔄 Codex 사용량 리셋 감지',url,color:type==='unknown'?0xFEE75C:0x57F287,
-      description:`유형: ${names[type]}\n발표 시각: ${announced}\n출처: X (@thsottiaux)\n원문: ${url}`});
-  }
-  if(!['scheduled','in_progress','mentioned'].includes(analysis.status))return null;
+// 원문 링크는 모델 출력이 아니라 수집한 현재 글 ID로만 구성한다.
+export function postNotification(post,analysis) {
   const url=`https://x.com/thsottiaux/status/${post.id}`;
-  const lines=['**:warning: 초기화 관련 내용 감지**'];
+  if(!statuses.includes(analysis.status))return url;
+  const related=analysis.status!=='unrelated';
+  const target=analysis.reset_type==='banked'?'저장형 리셋 지급':'초기화';
+  const titles={scheduled:`${target} 예정`,in_progress:`${target} 진행 중`,completed:`${target} 완료 안내`,mentioned:`${target} 관련 언급`};
+  const hasText=typeof post.text==='string'&&post.text.trim();
+  const title=related?titles[analysis.status]:hasText?(analysis.title_ko?.trim()||'Tibo 새 게시글'):'이미지·미디어 게시글';
+  const summary=!hasText&&!related?'Tibo가 이미지·미디어를 첨부한 게시글을 올렸습니다.':analysis.summary_ko?.trim();
+  if(!summary)return url;
+  const lines=related?['## ⚠️ 초기화 관련 내용 감지 ⚠️']:[];
+  lines.push(`**[${discordPlainText(title.slice(0,60))}](<${url}>)**`,`- ${discordPlainText(summary.slice(0,600))}`);
   // 게시 시각과 과거 예고를 현재 예정 시각으로 표시하지 않는다.
   const timestamp=analysis.status==='scheduled'?analysis.time?.timestamp:null;
   const local=Number.isFinite(timestamp)?formatKoreanTime(timestamp).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
   if(local)lines.push(`# 예정 시각: ${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}${analysis.time.relation==='deadline'?'까지':''}`,'-# 한국시간(KST) · 원문 분석');
-  const summary=discordPlainText(analysis.summary_ko.slice(0,600));
-  const qualifier=analysis.status==='scheduled'&&!local?' 원문에서 변환 가능한 초기화 시각은 확인되지 않았습니다.':'';
-  lines.push('',summary+qualifier,'',url);
-  const evidence=typeof analysis.evidence==='string'?analysis.evidence.trim():'';
-  const source=[post,...(post.context??[])].find(item=>typeof item.text==='string'&&evidence&&item.text.includes(evidence));
-  if(source)lines.push(`- ${source===post?'원문':'연결된 글'} 근거: “${discordPlainText(evidence.slice(0,180))}${evidence.length>180?'…':''}”`);
-  const target=analysis.reset_type==='banked'?'저장형 리셋 지급':'초기화';
-  const detail=analysis.status==='mentioned'?'새 초기화 예정이나 전체 완료 공지로 확인된 내용은 아닙니다.':analysis.status==='in_progress'?`${target} 진행 중이라는 안내이며, 전체 완료 안내는 아닙니다.`:`${target} 예정 안내이며, 완료 안내는 아닙니다.`;
-  lines.push('- '+detail);
+  lines.push(url);
   return lines.join('\n');
+}
+
+export function resetNotification(post,analysis) {
+  return ['scheduled','in_progress','completed','mentioned'].includes(analysis.status)?postNotification(post,analysis):null;
 }

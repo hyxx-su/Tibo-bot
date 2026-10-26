@@ -2,7 +2,7 @@ export {sendNotification} from './notifications.js';
 import {seedLegacyGuild,pendingSetupJobs} from './guild-settings.js';
 import {queueDeliveries,pendingDeliveries,processDeliveryJob} from './deliveries.js';
 import {collectTimelinePage} from './collector.js';
-import {analyzeReset,resetNotification} from './reset-analysis.js';
+import {analyzeReset,resetNotification,postNotification} from './reset-analysis.js';
 import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis,resolveQuoteContext} from './watch-store.js';
 
 const log=data=>console.log(JSON.stringify({service:'tibo-bot',...data}));
@@ -53,7 +53,7 @@ async function processPost(env,job) {
       if(needsAnalysis){
         next='analyze';await advancePost(env.DB,row,token,next);
       }else{
-        await queueDeliveries(env,row,`https://x.com/thsottiaux/status/${row.id}`,'link');
+        await queueDeliveries(env,row,postNotification(post,JSON.parse(row.analysis_json)),'link');
         next='done';await advancePost(env.DB,row,token,next);
         await dispatchPending(env);
       }
