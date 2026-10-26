@@ -21,7 +21,8 @@
     "DISCORD_NOTIFY_CHANNEL_ID": "YOUR_DISCORD_CHANNEL_ID",
     "WATCH_ENABLED": "false",
     "RESET_ANALYSIS_DAILY_LIMIT": "100",
-    "GATEWAY_ENABLED": "false"
+    "GATEWAY_ENABLED": "false",
+    "RESET_CHAT_ENABLED": "false"
   },
   "d1_databases": [
     {

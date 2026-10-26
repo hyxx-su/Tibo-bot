@@ -4,6 +4,7 @@ export {DiscordGateway} from './gateway.js';
 export {DiscordCommandGuard} from './command-guard.js';
 import {handleDiscord,processDiscordJob} from './discord.js';
 import {scheduleWatch,processWatchJob} from './watcher.js';
+import {processResetQuestionJob} from './reset-reply.js';
 
 export default {
   async fetch(request,env) {
@@ -20,7 +21,7 @@ export default {
   },
   async queue(batch,env) {
     for(const message of batch.messages){
-      if(!await processGuildJob(message,env)&&!await processDiscordJob(message,env)&&!await processWatchJob(message,env)){
+      if(!await processGuildJob(message,env)&&!await processDiscordJob(message,env)&&!await processResetQuestionJob(message,env)&&!await processWatchJob(message,env)){
         console.log(JSON.stringify({service:'tibo-bot',event:'unsupported-job'}));
         message.ack();
       }

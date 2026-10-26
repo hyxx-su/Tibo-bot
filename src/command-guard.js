@@ -1,8 +1,9 @@
-// 서명 검증 뒤에만 호출한다. 재시작·동시 요청에도 검증 API의 일일 한도를 유지한다.
+// 서명 검증 또는 내부 Gateway 경로에서만 호출하며 재시작·동시 요청에도 한도를 유지한다.
 export class DiscordCommandGuard {
   constructor(ctx) {this.ctx=ctx;}
 
   async fetch(request) {
+    if(request.method==='POST'&&new URL(request.url).pathname==='/chat-claim')return this.claimChat(await request.json());
     if(request.method!=='POST'||new URL(request.url).pathname!=='/claim')return new Response('Not found',{status:404});
     const input=await request.json();
     if(typeof input.id!=='string'||!/^\d{1,20}$/.test(input.id))return new Response('Invalid interaction',{status:400});
@@ -18,6 +19,31 @@ export class DiscordCommandGuard {
       return Response.json({result:'accepted'});
     });
   }
+
+  async claimChat(input) {
+    if(![input?.messageId,input?.channelId,input?.userId].every(value=>typeof value==='string'&&/^\d{1,20}$/.test(value)))return new Response('Invalid question',{status:400});
+    return this.ctx.blockConcurrencyWhile(async()=>{
+      const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
+      const state=await this.ctx.storage.get('chat-budget')??{day,count:0,nextAt:0,seen:[]};
+      state.seen=state.seen.filter(entry=>entry.expiresAt>now);
+      if(state.seen.some(entry=>entry.id===input.messageId))return Response.json({result:'duplicate'});
+      if(state.day!==day){state.day=day;state.count=0;}
+      if(state.count>=100||state.nextAt>now||state.seen.some(entry=>entry.acceptedAt+30000>now&&(entry.channelId===input.channelId||entry.userId===input.userId)))return Response.json({result:'limited'});
+      state.count++;state.nextAt=now+1000;state.seen.push({id:input.messageId,channelId:input.channelId,userId:input.userId,acceptedAt:now,expiresAt:now+600000});
+      await this.ctx.storage.put('chat-budget',state);
+      return Response.json({result:'accepted'});
+    });
+  }
+}
+
+export async function claimResetQuestion(env,job) {
+  if(!env.COMMAND_GUARD)throw new Error('Question guard missing');
+  const stub=env.COMMAND_GUARD.get(env.COMMAND_GUARD.idFromName('discord-reset-chat'));
+  const response=await stub.fetch('https://guard.internal/chat-claim',{method:'POST',body:JSON.stringify({messageId:job.messageId,channelId:job.channelId,userId:job.userId})});
+  if(!response.ok)throw new Error('Question guard unavailable');
+  const {result}=await response.json();
+  if(!['accepted','duplicate','limited'].includes(result))throw new Error('Invalid question guard result');
+  return result;
 }
 
 export async function claimVerification(env,id) {

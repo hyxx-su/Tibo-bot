@@ -1,5 +1,7 @@
 import {recordGuildEvent,recordChannelDeletion} from './guild-settings.js';
 import {readLimitedText} from './input.js';
+import {resetQuestionJob} from './reset-reply.js';
+import {claimResetQuestion} from './command-guard.js';
 const log=event=>console.log(JSON.stringify({service:'tibo-bot',event}));
 const fatalCodes=new Set([4004,4010,4011,4012,4013,4014]);
 
@@ -96,7 +98,7 @@ export class DiscordGateway {
       };
       this.heartbeatTimer=setTimeout(tick,Math.random()*interval);
       if(this.session)this.send(6,{token:this.env.DISCORD_BOT_TOKEN,session_id:this.session.id,seq:this.seq});
-      else this.send(2,{token:this.env.DISCORD_BOT_TOKEN,intents:1,properties:{os:'linux',browser:'Tibo-bot',device:'Tibo-bot'},presence:{status:'online',since:null,afk:false,activities:[]}});
+      else this.send(2,{token:this.env.DISCORD_BOT_TOKEN,intents:this.env.RESET_CHAT_ENABLED==='true'?33281:1,properties:{os:'linux',browser:'Tibo-bot',device:'Tibo-bot'},presence:{status:'online',since:null,afk:false,activities:[]}});
     }else if(payload.op===11){this.acked=true;this.lastAck=new Date().toISOString();}
     else if(payload.op===1)this.heartbeat();
     else if(payload.op===7){this.disconnect();this.defer();}
@@ -110,6 +112,11 @@ export class DiscordGateway {
     }else if(payload.op===0&&payload.t==='CHANNEL_DELETE'){
       this.guildEvents=this.guildEvents.then(()=>recordChannelDeletion(this.env,payload.d?.guild_id,payload.d?.id)).catch(()=>log('channel-delete-failed'));
       this.ctx.waitUntil(this.guildEvents);
+    }else if(payload.op===0&&payload.t==='MESSAGE_CREATE'&&this.env.RESET_CHAT_ENABLED==='true'){
+      const job=resetQuestionJob(payload.d,this.env.DISCORD_APPLICATION_ID);
+      if(job)this.ctx.waitUntil((async()=>{
+        if(await claimResetQuestion(this.env,job)==='accepted')await this.env.PROBE_JOBS.send(job);
+      })().catch(()=>log('reset-question-dispatch-failed')));
     }else if(payload.op===0&&(payload.t==='READY'||payload.t==='RESUMED')){
       if(payload.t==='READY'){
         gatewayUrl(payload.d.resume_gateway_url);
