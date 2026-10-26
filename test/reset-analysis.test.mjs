@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseResetTime,formatKoreanTime,publishedTimestamp} from '../src/reset-time.js';
 import {analyzeReset,resetNotification} from '../src/reset-analysis.js';
+import {notificationPayload} from '../src/notification-payload.js';
 import {scheduleWatch} from '../src/watcher.js';
 
 const published=Date.parse('2026-10-25T12:00:00Z');
@@ -96,22 +97,23 @@ try{
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);assert.equal(analysis.time,null);const content=resetNotification(current,analysis);assert.match(content,/초기화 진행 공지 감지/);assert.match(content,/# 10월 25일 15:06/);assert.doesNotMatch(content,/초기화 완료|17:00/);result=saved;
   });
   await test('완료 공지와 무관한 글을 예정으로 표시하지 않는다',()=>{
-    assert.match(resetNotification(post,{status:'completed',summary_ko:'초기화 완료'}),/^# 초기화 완료/);
+    assert.equal(notificationPayload(resetNotification(post,{status:'completed',reset_type:'regular',summary_ko:'초기화 완료'})).embeds[0].color,0x57F287);
     assert.equal(resetNotification(post,{status:'unrelated'}),null);
   });
 }finally{globalThis.fetch=originalFetch;}
 
 
-await test('조기 완료는 지정한 형식에 비교 문구를 한 번만 추가한다',()=>{
+await test('정기 완료는 본문 없이 초록색 임베드에 유형과 발표 시각을 표시한다',()=>{
   const current={id:'200',date:'Oct 25, 2026 · 6:06 AM UTC'};
-  const analysis={status:'completed',summary_ko:'모델이 만든 시간 비교 문구는 사용하지 않습니다.',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')};
-  assert.equal(resetNotification(current,analysis),'# 초기화 완료\n-# 기존 예상 · 10월 25일 17:00 (KST)\n\nTibo가 사용량 초기화의 전체 반영이 완료되었다고 안내했습니다. 기존 예상 시각보다 앞서 완료된 것으로 보입니다.\n\nhttps://x.com/thsottiaux/status/200');
+  const payload=notificationPayload(resetNotification(current,{status:'completed',reset_type:'regular',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')}));
+  assert.equal(payload.content,'');assert.equal(payload.embeds.length,1);const embed=payload.embeds[0];
+  assert.equal(embed.title,'🔄 Codex 사용량 리셋 감지');assert.equal(embed.color,0x57F287);
+  assert.equal(embed.description.split('\n').length,4);assert.match(embed.description,/정기 리셋 \(regular\)/);assert.match(embed.description,/발표 시각: 2026-10-25 15:06 KST/);
+  assert.doesNotMatch(embed.description,/17:00|앞서 완료|codex-resets/);
 });
-for(const date of ['Oct 25, 2026 · 8:00 AM UTC','Oct 25, 2026 · 9:00 AM UTC','invalid'])await test('예상보다 이르다는 근거가 없으면 비교 문구를 넣지 않는다: '+date,()=>{
-  const message=resetNotification({id:'200',date},{status:'completed',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')});assert.doesNotMatch(message,/앞서 완료/);
-});
-await test('기존 예상 시각이 없으면 추측하지 않는다',()=>{
-  const message=resetNotification({id:'200',date:'Oct 25, 2026 · 6:06 AM UTC'},{status:'completed'});assert.match(message,/기존 예상 시각 미확인/);assert.doesNotMatch(message,/앞서 완료/);
+await test('유형 없는 기존 분석과 잘못된 게시 날짜는 추측하지 않는다',()=>{
+  const embed=notificationPayload(resetNotification({id:'200',date:'invalid'},{status:'completed'})).embeds[0];
+  assert.equal(embed.color,0xFEE75C);assert.match(embed.description,/유형 미확인/);assert.match(embed.description,/발표 시각: 확인되지 않음/);assert.doesNotMatch(embed.description,/사용량이 초기화되었습니다/);
 });
 
 await test('PST 저녁의 tomorrow before 10am은 UTC 날짜가 아닌 PST 다음 날을 기준으로 변환한다',()=>{

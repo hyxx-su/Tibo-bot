@@ -9,7 +9,7 @@ const cases=[
   {name:'문맥 없는 짧은 답변',text:'Finished.',expected:'unrelated'},
   {name:'일반 배포 완료',text:'Finished across every account.',context:[{id:'1',text:'The new editor color theme is being deployed.',date:resetContext[0].date}],expected:'unrelated'},
   {name:'오탈자 포함 진행',text:'We are reseting Codex usage allowances for everyone; the rollout is still in progress.',expected:'in_progress'},
-  {name:'초기화권 지급',text:'One banked reset was added to each account. Redeem it manually whenever you need it; current usage is unchanged.',expected:'mentioned'},
+  {name:'초기화권 지급',text:'One banked reset was added to each account. Redeem it manually whenever you need it; current usage is unchanged.',expected:'completed',resetType:'banked'},
   {name:'초기화 예고',text:'Codex usage allowances will reset in 2 hours.',expected:'scheduled',time:Date.parse('2026-10-25T08:00:00Z')},
   {name:'초기화 진행',text:'Still rolling out to accounts.',context:resetContext,expected:'in_progress'},
   {name:'일부 반영',text:'The Codex usage reset has reached half the accounts; the rest are waiting.',expected:'in_progress'},
@@ -38,7 +38,7 @@ for(const entry of selected){
   attempted++;
   try{
     const result=await analyzeReset(process.env,{id:'2',date:'Oct 25, 2026 · 6:00 AM UTC',text:entry.text,context:entry.context??[]});
-    const passed=result.status===entry.expected&&(entry.time===undefined||result.time?.timestamp===entry.time)&&(entry.expected==='scheduled'||result.time_expression==='');
+    const passed=result.status===entry.expected&&(entry.resetType===undefined||result.reset_type===entry.resetType)&&(entry.time===undefined||result.time?.timestamp===entry.time)&&(entry.expected==='scheduled'||result.time_expression==='');
     totalTokens+=result.usage?.totalTokenCount??0;
     if(!passed)failures++;
     console.log(JSON.stringify({name:entry.name,expected:entry.expected,actual:result.status,passed}));
