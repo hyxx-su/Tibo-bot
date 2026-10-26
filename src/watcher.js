@@ -1,5 +1,5 @@
 export {sendNotification} from './notifications.js';
-import {seedLegacyGuild} from './guild-settings.js';
+import {seedLegacyGuild,pendingSetupJobs} from './guild-settings.js';
 import {queueDeliveries,pendingDeliveries,processDeliveryJob} from './deliveries.js';
 import {collectTimelinePage} from './collector.js';
 import {analyzeReset,resetNotification} from './reset-analysis.js';
@@ -20,6 +20,8 @@ async function poll(env,job) {
     // 수집원이 실패하는 동안에도 이미 저장한 발송·분석 작업은 재개한다.
     await seedLegacyGuild(env);
     await dispatchPending(env);
+    const setupJobs=await pendingSetupJobs(env.DB,Date.now());
+    if(setupJobs.length)await env.PROBE_JOBS.sendBatch(setupJobs);
     const page=await collectTimelinePage(env.NITTER_BASE_URL,job.cursor);
     const result=await recordPage(env.DB,page.posts,Date.now());
     const cutoff=job.cutoff??result.cutoff;

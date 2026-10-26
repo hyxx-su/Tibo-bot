@@ -74,24 +74,59 @@ export async function recordGuildEvent(env,type,guildId,unavailable=false) {
   await env.PROBE_JOBS.send({kind:'guild-welcome',guildId});
 }
 
-export async function sendWelcome(env,guildId) {
+export async function recordChannelDeletion(env,guildId,channelId) {
+  if(!validId(guildId)||!validId(channelId))return;
+  // 삭제 통지가 늦게 도착해도 새로 선택한 채널은 해제하지 않도록 저장된 목적지와 비교한다.
+  const [changed]=await env.DB.batch([
+    env.DB.prepare(`UPDATE guild_settings SET channel_id=NULL,welcome_message_id=NULL,welcome_lease_until=0
+      WHERE guild_id=? AND channel_id=? AND active=1 RETURNING guild_id`).bind(guildId,channelId),
+    env.DB.prepare(`UPDATE post_deliveries SET phase='cancelled',lease_until=0,claim_token=NULL
+      WHERE guild_id=? AND channel_id=? AND phase IN ('pending','failed')
+      AND EXISTS(SELECT 1 FROM guild_settings WHERE guild_id=? AND active=1 AND channel_id IS NULL)`).bind(guildId,channelId,guildId),
+  ]);
+  if(!changed.results.length)return;
+  await env.PROBE_JOBS.send({kind:'guild-channel-reselect',guildId});
+}
+
+export async function pendingSetupJobs(db,now) {
+  const {results}=await db.prepare(`SELECT guild_id,config_event,activated_at,welcome_channel_id FROM guild_settings
+    WHERE active=1 AND channel_id IS NULL AND welcome_message_id IS NULL AND welcome_lease_until<=? ORDER BY welcome_lease_until,guild_id LIMIT 10`).bind(now).all();
+  return results.map(row=>({body:{kind:row.config_event!=='0'||row.activated_at>0||row.welcome_channel_id?'guild-channel-reselect':'guild-welcome',guildId:row.guild_id}}));
+}
+
+export async function sendWelcome(env,guildId,reselect=false) {
   if(!validId(guildId))return;
-  const now=Date.now();
-  const row=await env.DB.prepare('UPDATE guild_settings SET welcome_lease_until=? WHERE guild_id=? AND active=1 AND welcome_message_id IS NULL AND welcome_lease_until<=? RETURNING *').bind(now+90000,guildId,now).first();
+  const now=Date.now(),lease=now+90000;
+  const row=await env.DB.prepare('UPDATE guild_settings SET welcome_lease_until=? WHERE guild_id=? AND active=1 AND channel_id IS NULL AND welcome_message_id IS NULL AND welcome_lease_until<=? RETURNING *').bind(lease,guildId,now).first();
   if(!row)return;
+  // 재연결의 환영 작업이 먼저 도착해도 이전 설정이 있으면 재선택 안내를 유지한다.
+  reselect=reselect||row.config_event!=='0'||row.activated_at>0||Boolean(row.welcome_channel_id);
+  let retryAt=0;
   try{
     const [guild,roles,bot,channels]=await Promise.all([discordApi(env,`/guilds/${guildId}`),discordApi(env,`/guilds/${guildId}/roles`),discordApi(env,`/guilds/${guildId}/members/${env.DISCORD_APPLICATION_ID}`),discordApi(env,`/guilds/${guildId}/channels`)]);
     const eligible=channels.filter(c=>[0,5].includes(c.type)&&canSend(guild,roles,bot,c)).sort((a,b)=>(a.position??0)-(b.position??0));
-    const channel=eligible.find(c=>c.id===guild.system_channel_id)??eligible[0];
-    if(!channel)return;
-    const message=await discordApi(env,`/channels/${channel.id}/messages`,{method:'POST',body:JSON.stringify({content:welcomeContent,components:channelMenu(),allowed_mentions:{parse:[]},nonce:'w'+guildId,enforce_nonce:true})});
-    await env.DB.prepare('UPDATE guild_settings SET welcome_message_id=?,welcome_channel_id=? WHERE guild_id=? AND active=1').bind(message.id,channel.id,guildId).run();
-  }finally{await env.DB.prepare('UPDATE guild_settings SET welcome_lease_until=0 WHERE guild_id=?').bind(guildId).run();}
+    eligible.sort((a,b)=>Number(b.id===guild.system_channel_id)-Number(a.id===guild.system_channel_id));
+    const nonce=reselect?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`setup:${guildId}:${row.config_event}:${row.activated_at}`))),b=>b.toString(16).padStart(2,'0')).join('').slice(0,24):'w'+guildId;
+    for(const channel of eligible){
+      const current=await env.DB.prepare('SELECT guild_id FROM guild_settings WHERE guild_id=? AND active=1 AND channel_id IS NULL AND welcome_message_id IS NULL AND welcome_lease_until=?').bind(guildId,lease).first();
+      if(!current)return;
+      try{
+        const message=await discordApi(env,`/channels/${channel.id}/messages`,{method:'POST',body:JSON.stringify({
+          ...(reselect?{embeds:[{title:'알림 채널을 다시 선택해 주세요',description:'기존 알림 채널을 사용할 수 없어 알림을 일시 중지했어요.\n서버 관리자는 아래에서 새 채널을 선택하거나 `/알림설정`을 사용해 주세요.',color:0xFEE75C}]}:{content:welcomeContent}),
+          components:channelMenu(),allowed_mentions:{parse:[]},nonce,enforce_nonce:true,
+        })});
+        await env.DB.prepare('UPDATE guild_settings SET welcome_message_id=?,welcome_channel_id=? WHERE guild_id=? AND active=1 AND channel_id IS NULL AND welcome_lease_until=?').bind(message.id,channel.id,guildId,lease).run();
+        return;
+      }catch(error){if(![403,404].includes(error.status))throw error;}
+    }
+    retryAt=Date.now()+600000;
+  }catch(error){retryAt=Date.now()+120000;throw error;}
+  finally{await env.DB.prepare('UPDATE guild_settings SET welcome_lease_until=? WHERE guild_id=? AND welcome_lease_until=?').bind(retryAt,guildId,lease).run();}
 }
 
 export async function processGuildJob(message,env) {
-  if(message.body?.kind!=='guild-welcome')return false;
-  try{await sendWelcome(env,message.body.guildId);message.ack();}
+  if(!['guild-welcome','guild-channel-reselect'].includes(message.body?.kind))return false;
+  try{await sendWelcome(env,message.body.guildId,message.body.kind==='guild-channel-reselect');message.ack();}
   catch{if(message.attempts<3)message.retry({delaySeconds:120});else message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'welcome-failed'}));}
   return true;
 }

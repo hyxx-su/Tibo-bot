@@ -1,4 +1,4 @@
-import {recordGuildEvent} from './guild-settings.js';
+import {recordGuildEvent,recordChannelDeletion} from './guild-settings.js';
 import {readLimitedText} from './input.js';
 const log=event=>console.log(JSON.stringify({service:'tibo-bot',event}));
 const fatalCodes=new Set([4004,4010,4011,4012,4013,4014]);
@@ -106,6 +106,9 @@ export class DiscordGateway {
     }else if(payload.op===0&&['GUILD_CREATE','GUILD_DELETE'].includes(payload.t)){
       // 입퇴장 순서를 보존하고 재연결의 GUILD_CREATE는 저장된 상태로 중복 안내를 방지한다.
       this.guildEvents=this.guildEvents.then(()=>recordGuildEvent(this.env,payload.t,payload.d?.id,payload.d?.unavailable===true)).catch(()=>log('guild-event-failed'));
+      this.ctx.waitUntil(this.guildEvents);
+    }else if(payload.op===0&&payload.t==='CHANNEL_DELETE'){
+      this.guildEvents=this.guildEvents.then(()=>recordChannelDeletion(this.env,payload.d?.guild_id,payload.d?.id)).catch(()=>log('channel-delete-failed'));
       this.ctx.waitUntil(this.guildEvents);
     }else if(payload.op===0&&(payload.t==='READY'||payload.t==='RESUMED')){
       if(payload.t==='READY'){

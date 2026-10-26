@@ -16,7 +16,10 @@ export async function sendNotification(env,postId,content,kind,messageId=null,ch
   if(!response.ok){
     const error=new Error('Notification failed');error.code='discord_'+response.status;error.permanent=[400,401,403,404].includes(response.status);
     if(response.status===429){const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));error.retryAfter=Math.min(86400,Math.ceil(Number(data.retry_after)||60));}
-    else await response.body?.cancel();
+    else if(response.status===404){
+      const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));
+      if(data.code===10003)error.discordCode=10003;
+    }else await response.body?.cancel();
     throw error;
   }
   const data=JSON.parse(await readLimitedText(response,16384));

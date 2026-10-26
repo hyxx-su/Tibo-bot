@@ -1,5 +1,5 @@
 import {sendNotification} from './notifications.js';
-import {seedLegacyGuild} from './guild-settings.js';
+import {seedLegacyGuild,recordChannelDeletion} from './guild-settings.js';
 
 export async function queueDeliveries(env,post,content,kind) {
   await seedLegacyGuild(env);
@@ -34,6 +34,11 @@ export async function processDeliveryJob(message,env) {
     }
     message.ack();
   }catch(error){
+    if(row&&error.discordCode===10003){
+      await recordChannelDeletion(env,row.guild_id,row.channel_id);
+      await env.DB.prepare("UPDATE post_deliveries SET phase='cancelled',lease_until=0,claim_token=NULL WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(row.post_id,row.guild_id,row.kind,token).run();
+      message.ack();return true;
+    }
     if(row){
       const attempts=row.attempts+1;const delay=Math.max(error.retryAfter??0,[60,120,300,900,3600,3600][Math.min(attempts-1,5)])*1000;
       await env.DB.prepare('UPDATE post_deliveries SET phase=?,attempts=?,next_attempt=?,lease_until=0,claim_token=NULL,last_error=? WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?')
