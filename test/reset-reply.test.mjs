@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
 import {resetQuestionJob,resetQuestionIntent,resetQuestionFingerprint,resetQuestionReply,repeatQuestionReply,processResetQuestionJob,dispatchResetQuestion} from '../src/reset-reply.js';
-import {noAnnouncementReplies,selectNoAnnouncementReplyIndex,mentionedResetReplies} from '../src/reset-replies.js';
+import {noAnnouncementReplies,selectNoAnnouncementReplyIndex,mentionedResetReplies,resetRequestLead} from '../src/reset-replies.js';
 import {DiscordGateway} from '../src/gateway.js';
 import {DiscordCommandGuard,claimResetQuestion} from '../src/command-guard.js';
 
@@ -28,6 +28,10 @@ phrases.completed.push('리셋 했냐','리셋 함?','초기화 됨?','다 됨?'
 phrases.remaining.push('지금 몇 분 남았어?','대략 얼마나 더 기다려?');
 phrases.help.push('언제 밥 먹어?','몇 시에 학교 가?','오늘 날씨 알려줘','초기화 버튼 눌러줘','휴대폰 초기화 해줘');
 phrases.personal.push('내 한도 풀어줘');
+phrases.status=phrases.status.filter(text=>text!=='초기화 왜 안 해줘?');
+phrases.delay=['초기화 왜 안 해줘?'];
+phrases.help=phrases.help.filter(text=>!['다음주 초기화는?','오늘 내일 초기화 있니?','초기화 버튼 눌러줘'].includes(text));
+phrases.date_scope=['다음주 초기화는?'];phrases.clarify=['오늘 내일 초기화 있니?'];phrases.manual.push('초기화 버튼 눌러줘');
 for(const [intent,values] of Object.entries(phrases))for(const text of values)test(`다양한 표현을 해석한다: ${text}`,()=>{
   assert.equal(resetQuestionIntent(text).intent,intent);const job=resetQuestionJob({...source,content:'Tibo야 '+text},'1',now);assert.equal(job.intent,intent);assert.equal(job.content,undefined);
 });
@@ -47,8 +51,8 @@ test('부탁형도 기능 설명 대신 실제 공지 상태를 답한다',()=>{
   for(const text of ['초기화 내놔','초기화 줘라','리셋 제발']){
     const question={...resetQuestionIntent(text),replyIndex:7};
     const ask=(posts=[],extra={})=>resetQuestionReply({state,posts,pending:false,...extra},now,question);
-    assert.equal(ask(),noAnnouncementReplies[7]);
-    assert.equal(ask([post('100','mentioned')]),mentionedResetReplies[7]);
+    assert.equal(ask(),resetRequestLead(question)+' '+noAnnouncementReplies[7]);
+    assert.equal(ask([post('100','mentioned')]),resetRequestLead(question)+' '+mentionedResetReplies[7]);
     assert.match(ask([post('100','scheduled',undefined,{timestamp:now+3600000})]),/초기화 예정이야/);
     assert.match(ask([post('100','completed')]),/이미 끝났다는 공지/);
     assert.match(ask([post('100','in_progress')]),/반영 중/);
@@ -60,7 +64,7 @@ test('부탁형도 기능 설명 대신 실제 공지 상태를 답한다',()=>{
 test('시간 미정 답변은 고유한 20개 문구를 사용하고 재시도에도 같다',()=>{
   assert.equal(mentionedResetReplies.length,20);assert.equal(new Set(mentionedResetReplies).size,20);
   const selected=new Set();for(let replyIndex=0;replyIndex<200;replyIndex++){
-    const question={intent:'manual',replyIndex};const input={state,posts:[post('100','mentioned')],pending:false};
+    const question={intent:'status',replyIndex};const input={state,posts:[post('100','mentioned')],pending:false};
     const answer=resetQuestionReply(input,now,question);selected.add(answer);
     assert.equal(answer,resetQuestionReply(input,now,question));assert.ok(!noAnnouncementReplies.includes(answer));
     assert.doesNotMatch(answer,/[\r\n]|내가|권한|기능|초기화해줄게|처리했어/);
@@ -192,6 +196,13 @@ try{
       status=503;const stale=await process({issuedAt:Date.now()-100000});assert.equal(stale.ack,true);assert.equal(stale.retry,null);
       for(const code of [400,401,403,404,405,422]){status=code;const denied=await process();assert.equal(denied.ack,true);assert.equal(denied.retry,null);}
     }finally{status=200;retryAfter=undefined;}
+  });
+  await test('새 의도와 시간 변환을 실제 응답 경로로 전달하고 잘못된 시간 필드는 거부한다',async()=>{
+    for(const text of ['초기화 공지 원문 보여줘','지난번 리셋 언제였어?','무료 계정도 초기화 대상이야?','초기화 취소됐어?','이전 공지랑 달라진 부분만 알려줘','초기화 왜 안 해?','아직?','이번 주 초기화 있어?','초기화권 어디서 써?','자정까지면 정확히 자정에 하는 거야?']){
+      const before=calls.length;await process(resetQuestionIntent(text));assert.equal(calls.length,before+1);
+    }
+    await process(resetQuestionIntent('PST 오전 10시면 한국은 언제야?'));assert.match(calls.at(-1).content,/다음 날 03:00/);
+    const before=calls.length;for(const fields of [{intent:'timezone',zone:'PST',hour:24},{intent:'timezone',zone:'PT',hour:10},{intent:'manual',zone:'PST',hour:10}])await process(fields);assert.equal(calls.length,before);
   });
   await test('봇이 나간 서버·만료된 질문·비활성화 상태는 보내지 않는다',async()=>{
     const before=calls.length;await process({issuedAt:Date.now()-121000});env.RESET_CHAT_ENABLED='false';await process();env.RESET_CHAT_ENABLED='true';await db.prepare("UPDATE guild_settings SET active=0 WHERE guild_id='20'").run();await process();assert.equal(calls.length,before);await db.prepare("UPDATE guild_settings SET active=1 WHERE guild_id='20'").run();
