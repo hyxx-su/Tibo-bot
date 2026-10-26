@@ -7,7 +7,14 @@ export const welcomeContent='반가워요! 저는 Tibo봇이에요.\nTibo의 새
 
 export async function discordApi(env,path,options={}) {
   const response=await fetch('https://discord.com/api/v10'+path,{...options,redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000)});
-  if(!response.ok){await response.body?.cancel();const error=new Error('Discord API failed');error.status=response.status;throw error;}
+  if(!response.ok){
+    const error=new Error('Discord API failed');error.status=response.status;
+    if(response.status===404){
+      const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));
+      if(data.code===10003)error.discordCode=10003;
+    }else await response.body?.cancel();
+    throw error;
+  }
   return JSON.parse(await readLimitedText(response,1048576));
 }
 
@@ -94,6 +101,18 @@ export async function pendingSetupJobs(db,now) {
   return results.map(row=>({body:{kind:row.config_event!=='0'||row.activated_at>0||row.welcome_channel_id?'guild-channel-reselect':'guild-welcome',guildId:row.guild_id}}));
 }
 
+export async function checkNotificationChannel(env,guildId) {
+  if(!validId(guildId))return;
+  const row=await env.DB.prepare('SELECT channel_id FROM guild_settings WHERE guild_id=? AND active=1').bind(guildId).first();
+  if(!validId(row?.channel_id))return;
+  try{await discordApi(env,`/channels/${row.channel_id}`);}
+  catch(error){
+    // 재시작 중 놓친 삭제는 Discord가 명시적으로 반환한 채널 없음 응답으로만 보완한다.
+    if(error.discordCode===10003)await recordChannelDeletion(env,guildId,row.channel_id);
+    else if(error.status!==403)throw error;
+  }
+}
+
 export async function sendWelcome(env,guildId,reselect=false) {
   if(!validId(guildId))return;
   const now=Date.now(),lease=now+90000;
@@ -126,7 +145,10 @@ export async function sendWelcome(env,guildId,reselect=false) {
 
 export async function processGuildJob(message,env) {
   if(!['guild-welcome','guild-channel-reselect'].includes(message.body?.kind))return false;
-  try{await sendWelcome(env,message.body.guildId,message.body.kind==='guild-channel-reselect');message.ack();}
+  try{
+    if(message.body.kind==='guild-welcome')await checkNotificationChannel(env,message.body.guildId);
+    await sendWelcome(env,message.body.guildId,message.body.kind==='guild-channel-reselect');message.ack();
+  }
   catch{if(message.attempts<3)message.retry({delaySeconds:120});else message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'welcome-failed'}));}
   return true;
 }
