@@ -16,7 +16,7 @@ export async function pendingDeliveries(db,now) {
 }
 
 export async function processDeliveryJob(message,env) {
-  if(env.WATCH_ENABLED!=='true'){message.ack();return true;}
+  if(env.WATCH_ENABLED!=='true'||(message.body?.deliveryKind==='site-reset'&&env.SITE_RESETS_ENABLED!=='true')){message.ack();return true;}
   const job=message.body,token=crypto.randomUUID();let row;
   try{
     row=await env.DB.prepare("UPDATE post_deliveries SET lease_until=?,claim_token=? WHERE post_id=? AND guild_id=? AND kind=? AND phase='pending' AND lease_until<=? AND next_attempt<=? RETURNING *")
@@ -29,7 +29,7 @@ export async function processDeliveryJob(message,env) {
       const messageId=row.kind==='link'&&row.message_id?row.message_id:await sendNotification(env,row.post_id,row.content,row.kind,row.message_id,row.channel_id);
       const statements=[env.DB.prepare("UPDATE post_deliveries SET phase='done',message_id=?,lease_until=0,claim_token=NULL,last_error=NULL WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(messageId,row.post_id,row.guild_id,row.kind,token)];
       // 기존 단일 서버의 관리자 재분석과 발송 기록 호환성을 보존한다.
-      if(row.guild_id===env.DISCORD_TEST_GUILD_ID)statements.push(env.DB.prepare(`UPDATE watched_posts SET ${row.kind==='link'?'message_id':'reset_message_id'}=? WHERE id=?`).bind(messageId,row.post_id));
+      if(row.kind!=='site-reset'&&row.guild_id===env.DISCORD_TEST_GUILD_ID)statements.push(env.DB.prepare(`UPDATE watched_posts SET ${row.kind==='link'?'message_id':'reset_message_id'}=? WHERE id=?`).bind(messageId,row.post_id));
       await env.DB.batch(statements);
     }
     message.ack();

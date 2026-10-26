@@ -6,7 +6,7 @@ export async function sendNotification(env,postId,content,kind,messageId=null,ch
   if(!env.DISCORD_BOT_TOKEN||!/^\d+$/.test(channel??''))throw new Error('Notification configuration missing');
   if(messageId!==null&&!/^\d{1,20}$/.test(messageId))throw new Error('Invalid notification ID');
   const payload={...notificationPayload(content),allowed_mentions:{parse:[]}};
-  const legacy=channel===(env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID);
+  const legacy=kind!=='site-reset'&&channel===(env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID);
   const nonce=legacy?`${kind==='link'?'l':'r'}${postId}`:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${channel}:${kind}:${postId}`))),b=>b.toString(16).padStart(2,'0')).join('').slice(0,24);
   if(messageId){payload.flags=0;payload.embeds??=[];}else Object.assign(payload,{nonce,enforce_nonce:true});
   const response=await fetch(`https://discord.com/api/v10/channels/${channel}/messages${messageId?'/'+messageId:''}`,{

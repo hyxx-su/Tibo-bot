@@ -1,3 +1,4 @@
+import {scheduleSiteResets,processSiteResetJob} from './site-reset-watch.js';
 import {processGuildJob} from './guild-settings.js';
 import {maintainGateway} from './gateway.js';
 export {DiscordGateway} from './gateway.js';
@@ -17,11 +18,11 @@ export default {
     return new Response('Not found',{status:404});
   },
   async scheduled(controller,env) {
-    await Promise.all([scheduleWatch(env),maintainGateway(env)]);
+    await Promise.all([scheduleWatch(env),scheduleSiteResets(env),maintainGateway(env)]);
   },
   async queue(batch,env) {
     for(const message of batch.messages){
-      if(!await processGuildJob(message,env)&&!await processDiscordJob(message,env)&&!await processResetQuestionJob(message,env)&&!await processWatchJob(message,env)){
+      if(!await processSiteResetJob(message,env)&&!await processGuildJob(message,env)&&!await processDiscordJob(message,env)&&!await processResetQuestionJob(message,env)&&!await processWatchJob(message,env)){
         console.log(JSON.stringify({service:'tibo-bot',event:'unsupported-job'}));
         message.ack();
       }

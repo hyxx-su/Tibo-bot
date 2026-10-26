@@ -4,7 +4,7 @@ function validate(embed) {
   if(!embed||typeof embed.title!=='string'||!embed.title||embed.title.length>256||
     (embed.description!==undefined&&(typeof embed.description!=='string'||embed.description.length>4096))||
     !Number.isInteger(embed.color)||embed.color<0||embed.color>0xffffff||
-    typeof embed.url!=='string'||!/^https:\/\/x\.com\/thsottiaux\/status\/\d{1,20}$/.test(embed.url))throw new Error('Invalid notification embed');
+    typeof embed.url!=='string'||(embed.url!=='https://codex-resets.com/'&&!/^https:\/\/x\.com\/thsottiaux\/status\/\d{1,20}$/.test(embed.url)))throw new Error('Invalid notification embed');
   return {title:embed.title,...(embed.description!==undefined?{description:embed.description}:{}),color:embed.color,url:embed.url};
 }
 function validateContent(content) {
