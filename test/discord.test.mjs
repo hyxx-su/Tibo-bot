@@ -69,12 +69,12 @@ try{
   for(const field of ['application_id','guild_id','channel_id'])await check(`wrong ${field} cannot enqueue analysis`,async()=>{
     const r=await(await signed(JSON.stringify({...base,[field]:'different'}))).json();assert.equal(r.type,4);assert.equal(r.data.flags,64);assert.equal(calls.length,0);
   });
-  for(const permissions of [undefined,'0','-8','invalid'])await check(`알림설정 권한 부재·변조 ${permissions}를 거부한다`,async()=>{
-    const before=calls.length;const r=await(await signed(JSON.stringify({...base,member:{permissions},data:{name:'알림설정'}}))).json();assert.match(r.data.content,/서버 관리/);assert.equal(calls.length,before);
+  for(const permissions of [undefined,'0','-8','invalid'])await check(`채널 권한 부재·변조 ${permissions}를 거부한다`,async()=>{
+    const before=calls.length;const r=await(await signed(JSON.stringify({...base,member:{permissions},data:{name:'채널'}}))).json();assert.match(r.data.content,/서버 관리/);assert.equal(calls.length,before);
   });
   await check('제거한 검증 명령은 관리자·유효 토큰이어도 새 작업을 만들지 않는다',async()=>{
     for(const fields of [{},{id:'9002'},{token:''}, {guild_id:'20',channel_id:'30'}]){
-      const response=await(await signed(JSON.stringify({...base,...fields}))).json();assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.content,'이 앱은 /알림설정, /상태 명령을 지원합니다.');
+      const response=await(await signed(JSON.stringify({...base,...fields}))).json();assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.content,'이 앱은 /채널, /상태 명령을 지원합니다.');
     }
     assert.equal(calls.length,0);
   });
@@ -92,9 +92,14 @@ try{
     await queue.send(job);await queue.send(job);await waitFor(()=>calls.filter(c=>c.kind==='discord').length===3);
     const replies=calls.filter(c=>c.kind==='discord');assert.equal(new Set(replies.map(r=>r.path)).size,1);assert.ok(replies.every(r=>r.method==='PATCH'));
   });
-  await check('새 서버의 관리자가 알림설정 메뉴를 비공개로 열 수 있다',async()=>{
-    const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'알림설정'}}))).json();
+  await check('새 서버의 관리자가 채널 메뉴를 비공개로 열 수 있다',async()=>{
+    const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'채널'}}))).json();
     assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.components[0].components[0].type,8);assert.deepEqual(response.data.components[0].components[0].channel_types,[0,5]);
+  });
+  await check('이전 알림설정 이름은 설정 작업을 만들지 않고 새 명령을 안내한다',async()=>{
+    const before=calls.length;
+    const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'알림설정'}}))).json();
+    assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.match(response.data.content,/\/채널/);assert.equal(response.data.components,undefined);assert.equal(calls.length,before);
   });
   await check('일반 사용자와 DM의 메뉴 선택은 설정을 변경하지 않는다',async()=>{
     for(const fields of [{member:{permissions:'0',user:{id:'90'}}},{guild_id:undefined}]){

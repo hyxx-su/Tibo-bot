@@ -36,7 +36,7 @@ for(const status of ['reconnecting','disabled','unavailable'])test(`Discord ${st
 });
 
 for(const channelId of [undefined,'not-a-channel'])test(`알림 채널 미설정 ${channelId}는 설정 방법을 표시한다`,()=>{
-  const data=statusMessage({...base,channelId});assert.match(data.embeds[0].title,/🟡/);assert.equal(field(data,'알림 채널'),'미설정');assert.match(data.embeds[0].description,/알림설정/);
+  const data=statusMessage({...base,channelId});assert.match(data.embeds[0].title,/🟡/);assert.equal(field(data,'알림 채널'),'미설정');assert.match(data.embeds[0].description,/채널/);
 });
 
 test('실제 전송 실패가 있으면 건수를 노출하지 않고 권한 확인을 안내한다',()=>{
