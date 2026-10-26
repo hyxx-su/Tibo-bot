@@ -25,7 +25,7 @@ export function resetQuestionIntent(value) {
   if(/(지난번|마지막으로)/.test(text)&&topic)return plain('history');
   if(/(원문|링크|누가|직접말|어느글|본문|답글|댓글|근거|공식발표|확정공지만|그냥reset|농담|예전글|최신|새로.*소식|며칠전에|배포완료|관련글보여)/.test(text))return plain('source');
   if(/(정확히자정|전이면.*일찍|이전에끝|기한|일찍초기화|아침까지.*뜻)/.test(text))return plain('deadline');
-  if(/(pst|pdt|pt랑|미국|서머타임|시간대|어느나라|글올라온시간|어제말한내일|자정넘|한국날짜로오늘|한국시간\d|추정인|오늘밤이라는|날짜가바뀌)/.test(text)){
+  if(/(pst|pdt|pt(?=랑|오전|오후|\d)|미국|서머타임|시간대|어느나라|글올라온시간|어제말한내일|자정넘|한국날짜로오늘|한국시간\d|추정인|오늘밤이라는|날짜가바뀌)/.test(text)){
     const clock=text.match(/(pst|pdt)(오전|오후)?(\d{1,2})시/);
     if(clock){const hour=Number(clock[3]);if((clock[2]&&hour>=1&&hour<=12)||(!clock[2]&&hour<24))return {intent:'timezone',zone:clock[1].toUpperCase(),hour:clock[2]?hour%12+(clock[2]==='오후'?12:0):hour};}
     return plain('timezone');
