@@ -242,3 +242,9 @@ export function mentionedResetReply(question={}) {
   const index=Number.isInteger(question.replyIndex)&&question.replyIndex>=0?question.replyIndex%mentionedResetReplies.length:0;
   return mentionedResetReplies[index];
 }
+
+const requestLeads=Object.freeze(['한 번 더 필요한 거지.','리셋이 급한가 보네.','초기화가 필요한 거구나.','한도가 아쉽지.','리셋 기다리는 거지.','한 번 더 쓸 수 있으면 좋겠지.']);
+export function resetRequestLead(question={}) {
+  const index=Number.isInteger(question.replyIndex)&&question.replyIndex>=0?question.replyIndex%requestLeads.length:0;
+  return requestLeads[index];
+}
