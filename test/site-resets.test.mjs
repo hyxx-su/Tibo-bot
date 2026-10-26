@@ -5,7 +5,7 @@ import {Miniflare,Log,LogLevel} from 'miniflare';
 import {parseSiteResets,collectSiteResets,siteResetNotification} from '../src/site-reset-source.js';
 import {pollSiteResets,scheduleSiteResets,processSiteResetJob} from '../src/site-reset-watch.js';
 import {notificationPayload} from '../src/notification-payload.js';
-import {processDeliveryJob} from '../src/deliveries.js';
+import {processDeliveryJob,pendingDeliveries} from '../src/deliveries.js';
 
 const now=Date.now();
 const row=(id,type='regular')=>({id,reset_type:type,announced_at:new Date(now-3600000).toISOString(),source:{type:'x_post',author:'thsottiaux',url:`https://x.com/thsottiaux/status/${id}`}});
@@ -106,5 +106,16 @@ try{
     const failed=await db.prepare("SELECT * FROM post_deliveries WHERE post_id='site:regular:104' AND phase='pending'").first();assert.ok(failed.next_attempt>Date.now()+60000);
     await db.prepare("UPDATE post_deliveries SET next_attempt=0 WHERE post_id='site:regular:104' AND phase='pending'").run();await release();await pollSiteResets(env,now);await deliverAll();
     assert.equal(sent.filter(s=>s.status===200&&s.body.embeds[0].url.endsWith('/104')).length,2);
+  });
+  await test('사이트 감시를 중지하면 쌓인 사이트 알림 대신 X 알림을 복구한다',async()=>{
+    await db.batch(Array.from({length:12},(_,i)=>db.prepare("INSERT INTO post_deliveries(post_id,guild_id,kind,channel_id,content) VALUES (?,'2','site-reset','3','fixture')").bind('paused:'+i)));
+    await db.prepare("INSERT INTO post_deliveries(post_id,guild_id,kind,channel_id,content) VALUES ('999','2','link','3','https://x.com/thsottiaux/status/999')").run();
+    const active=await pendingDeliveries(db,Date.now(),false);
+    assert.deepEqual(active.map(job=>job.body.deliveryKind),['link']);
+    const before=sent.length;
+    await processDeliveryJob({body:{kind:'watch-delivery',postId:'paused:0',guildId:'2',deliveryKind:'site-reset'},ack(){}},{...env,SITE_RESETS_ENABLED:'false'});
+    assert.equal(sent.length,before);
+    assert.equal((await db.prepare("SELECT phase FROM post_deliveries WHERE post_id='paused:0'").first()).phase,'pending');
+    assert.ok((await pendingDeliveries(db,Date.now(),true)).some(job=>job.body.deliveryKind==='site-reset'));
   });
 }finally{globalThis.fetch=originalFetch;await mf.dispose();}
