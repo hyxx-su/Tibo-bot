@@ -114,7 +114,7 @@ function resetQuestionStatusReply({state,posts,pending,siteResets=[]},now,questi
     const match=typeof event.original_url==='string'?event.original_url.match(/^https:\/\/x\.com\/thsottiaux\/status\/(\d{1,20})$/):null;
     if(event.original_url!==null&&!match)continue;
     // 같은 원문의 예고 분류보다 사이트에서 확인한 실행 기록을 우선한다.
-    if(match){const index=signals.findIndex(signal=>signal.id===match[1]);if(index>=0)signals.splice(index,1);}
+    if(match){const index=signals.findIndex(signal=>!signal.site&&signal.id===match[1]);if(index>=0)signals.splice(index,1);}
     signals.push({analysis:{status:'completed',reset_type:event.reset_type},at,id:match?.[1]??'0',site:true});
   }
   signals.sort((a,b)=>b.at-a.at||Number(Boolean(b.site))-Number(Boolean(a.site))||(BigInt(a.id)>BigInt(b.id)?-1:1));
@@ -131,7 +131,7 @@ function resetQuestionStatusReply({state,posts,pending,siteResets=[]},now,questi
     if(newest?.analysis.reset_type==='banked')Object.assign(labels,{scheduled:'저장형 리셋 지급 예정',completed:'저장형 리셋 지급 완료',in_progress:'저장형 리셋 지급 중',mentioned:'저장형 리셋 관련 언급'});
     else if(newest?.analysis.reset_type==='unknown'&&newest.analysis.status==='completed')labels.completed='완료 안내 · 리셋 유형 미확인';
     const lead=question.intent==='comparison'?'이전 답변과의 변경 여부는 단정할 수 없어. ':question.intent==='change'?'취소·연기 여부는 현재 분류만으로 확정할 수 없어. ':'';
-    return lead+(newest?`저장된 최신 ${newest.site?'사이트 실행 기록의 발표 시각':'관련 글은'} ${formatKoreanTime(newest.at)}이야. 저장된 분류는 ‘${labels[newest.analysis.status]??'확인 불가'}’야. 출처: ${sourceLink(newest)}`:'확인할 초기화 관련 원문은 아직 못 찾았어.');
+    return lead+(newest?`저장된 최신 ${newest.site?'사이트 실행 기록의 발표 시각은':'관련 글은'} ${formatKoreanTime(newest.at)}이야. 저장된 분류는 ‘${labels[newest.analysis.status]??'확인 불가'}’야. 출처: ${sourceLink(newest)}`:'확인할 초기화 관련 원문은 아직 못 찾았어.');
   }
   if(question.intent==='deadline')return '“까지·이전”은 완료 기한이라 그보다 일찍 될 수도 있어. 정확한 실행 시각이나 이미 완료됐다는 뜻은 아니야.'+(newest?.analysis.status==='scheduled'&&newest.analysis.time?.relation==='deadline'?' 최근 예고도 기한으로 해석됐어.':' 지금 글에 그 기한이 있는지는 원문을 확인해야 해.');
   const scope=Number.isInteger(question.dayOffset)?koreanDay(now+question.dayOffset*dayMs):null;
@@ -140,9 +140,10 @@ function resetQuestionStatusReply({state,posts,pending,siteResets=[]},now,questi
   const matchesScope=signal=>koreanDay(signal.analysis.status==='scheduled'&&Number.isFinite(signal.analysis.time?.timestamp)?signal.analysis.time.timestamp:signal.at)===scope;
   // 오늘·미래 질문에서도 최신 완료 공지를 건너뛰어 과거 예고를 되살리지 않는다.
   // 완료 뒤의 단순 언급은 완료 사실을 지우지 않는다. 새로운 예고·진행·분석 불명은 건너뛰지 않는다.
-  const actionable=signals.find(signal=>signal.analysis.status!=='mentioned');
-  const effective=newest?.analysis.status==='mentioned'&&actionable?.analysis.status==='completed'?actionable:newest;
-  const latest=!scope?effective:question.dayOffset<0?signals.find(matchesScope):effective&&matchesScope(effective)?effective:null;
+  const candidates=scope&&question.dayOffset<0?signals.filter(matchesScope):signals;
+  const actionable=candidates.find(signal=>signal.analysis.status!=='mentioned');
+  const effective=candidates[0]?.analysis.status==='mentioned'&&actionable?.analysis.status==='completed'?actionable:candidates[0];
+  const latest=!scope?effective:effective&&matchesScope(effective)?effective:null;
   if(!latest)return noAnnouncementReply(question,`아직 ${scopeName} 초기화 공지는 못 봤네.`);
   const {analysis,at}=latest;const today=koreanDay(now);
   const banked=analysis.reset_type==='banked';
