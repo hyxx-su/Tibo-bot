@@ -97,23 +97,21 @@ try{
     const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);assert.equal(analysis.time,null);const content=resetNotification(current,analysis);assert.match(content,/초기화 진행 중/);assert.equal(notificationPayload(content).embeds,undefined);assert.doesNotMatch(notificationPayload(content).content,/초기화 완료|17:00|15:06/);result=saved;
   });
   await test('완료 공지와 무관한 글을 예정으로 표시하지 않는다',()=>{
-    assert.equal(notificationPayload(resetNotification(post,{status:'completed',reset_type:'regular',summary_ko:'초기화 완료'})).embeds[0].color,0x57F287);
+    assert.match(resetNotification(post,{status:'completed',reset_type:'regular',summary_ko:'초기화 완료'}),/초기화 완료 안내/);
     assert.equal(resetNotification(post,{status:'unrelated'}),null);
   });
 }finally{globalThis.fetch=originalFetch;}
 
 
-await test('정기 완료는 본문 없이 초록색 임베드에 유형과 발표 시각을 표시한다',()=>{
+await test('X 완료 공지는 텍스트 요약이며 과거 예정 시각을 재사용하지 않는다',()=>{
   const current={id:'200',date:'Oct 25, 2026 · 6:06 AM UTC'};
-  const payload=notificationPayload(resetNotification(current,{status:'completed',reset_type:'regular',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')}));
-  assert.equal(payload.content,'');assert.equal(payload.embeds.length,1);const embed=payload.embeds[0];
-  assert.equal(embed.title,'🔄 Codex 사용량 리셋 감지');assert.equal(embed.color,0x57F287);
-  assert.equal(embed.description.split('\n').length,4);assert.match(embed.description,/정기 리셋 \(regular\)/);assert.match(embed.description,/발표 시각: 2026-10-25 15:06 KST/);
-  assert.doesNotMatch(embed.description,/17:00|앞서 완료|codex-resets/);
+  const payload=notificationPayload(resetNotification(current,{status:'completed',reset_type:'regular',summary_ko:'사용량이 초기화됐다고 안내합니다.',previousExpectedAt:Date.parse('2026-10-25T08:00:00Z')}));
+  assert.equal(payload.embeds,undefined);assert.match(payload.content,/초기화 완료 안내/);assert.match(payload.content,/- 사용량이 초기화됐다고 안내합니다./);
+  assert.doesNotMatch(payload.content,/17:00|15:06|앞서 완료|codex-resets/);
 });
-await test('유형 없는 기존 분석과 잘못된 게시 날짜는 추측하지 않는다',()=>{
-  const embed=notificationPayload(resetNotification({id:'200',date:'invalid'},{status:'completed'})).embeds[0];
-  assert.equal(embed.color,0xFEE75C);assert.match(embed.description,/유형 미확인/);assert.match(embed.description,/발표 시각: 확인되지 않음/);assert.doesNotMatch(embed.description,/사용량이 초기화되었습니다/);
+await test('유형 없는 기존 완료 분석을 정기 리셋으로 추측하지 않는다',()=>{
+  const content=resetNotification({id:'200',date:'invalid'},{status:'completed',summary_ko:'완료 안내입니다.'});
+  assert.match(content,/초기화 완료 안내/);assert.doesNotMatch(content,/정기|발표 시각|저장형/);
 });
 
 await test('PST 저녁의 tomorrow before 10am은 UTC 날짜가 아닌 PST 다음 날을 기준으로 변환한다',()=>{

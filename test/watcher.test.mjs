@@ -34,7 +34,7 @@ const mf=new Miniflare({
       else if(input.text.includes('will reset tomorrow at 9am PT.')){status='scheduled';time_expression='tomorrow at 9am PT';}
       else if(input.text==='By midnight PST'&&contextHasReset){status='scheduled';time_expression=input.text;}
       else if(input.text==='Usage allowances were replenished for everyone.'||input.text==='A banked reset has been credited to every account.')status='completed';
-      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status,reset_type:status==='unrelated'?'unknown':input.text.includes('banked')?'banked':'regular',type_evidence:status==='unrelated'?'':input.text,summary_ko:status==='unrelated'?'초기화와 무관한 글입니다.':'Tibo가 사용량 초기화 상태를 안내했습니다.',evidence:status==='unrelated'?'':input.text,time_expression})}]}}],usageMetadata:{totalTokenCount:100}});
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({status,reset_type:status==='unrelated'?'unknown':input.text.includes('banked')?'banked':'regular',type_evidence:status==='unrelated'?'':input.text,title_ko:'새 소식',summary_ko:status==='unrelated'?'새 소식을 전합니다.':'Tibo가 사용량 초기화 상태를 안내했습니다.',evidence:status==='unrelated'?'':input.text,time_expression})}]}}],usageMetadata:{totalTokenCount:100}});
     }
     if(url.hostname==='discord.com'){
       const body=await request.json();calls.push({kind:'discord',body,status:discordStatus,authorization:request.headers.get('Authorization'),path:url.pathname,method:request.method});
@@ -59,9 +59,9 @@ try{
   await test('첫 실행은 기준점만 저장하고 과거 글을 발송하지 않는다',async()=>{
     await poll();await waitFor(async()=>(await db.prepare('SELECT baseline_id FROM watch_state WHERE id=1').first()).baseline_id==='100');await waitPoll();assert.equal(calls.filter(c=>c.kind==='discord').length,0);
   });
-  await test('일반 글도 Gemini로 분석한 뒤 원문 링크만 한 번 발송한다',async()=>{
+  await test('일반 글도 Gemini로 분석한 뒤 제목·요약·원문을 한 번 발송한다',async()=>{
     posts=[{id:'101',text:'새 합성 게시글'},...posts];await poll();await waitFor(async()=>await settled('101'));await waitPoll();
-    const sent=calls.filter(c=>c.kind==='discord');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/101');assert.deepEqual(sent[0].body.allowed_mentions,{parse:[]});assert.equal(sent[0].body.enforce_nonce,true);assert.equal((sent[0].body.flags??0)&4,0);assert.equal(sent[0].authorization,'Bot synthetic-token');assert.equal(calls.filter(c=>c.kind==='ai').length,1);assert.equal(JSON.parse((await row('101')).analysis_json).status,'unrelated');
+    const sent=calls.filter(c=>c.kind==='discord');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'**[새 소식](<https://x.com/thsottiaux/status/101>)**\n- 새 소식을 전합니다.\nhttps://x.com/thsottiaux/status/101');assert.deepEqual(sent[0].body.allowed_mentions,{parse:[]});assert.equal(sent[0].body.enforce_nonce,true);assert.equal((sent[0].body.flags??0)&4,0);assert.equal(sent[0].authorization,'Bot synthetic-token');assert.equal(calls.filter(c=>c.kind==='ai').length,1);assert.equal(JSON.parse((await row('101')).analysis_json).status,'unrelated');
   });
   await test('중복 Queue 메시지는 이미 보낸 링크를 다시 보내지 않는다',async()=>{
     await queue.send({kind:'watch-post',postId:'101',phase:'link'});await queue.send({kind:'watch-post',postId:'101',phase:'link'});
@@ -70,9 +70,9 @@ try{
   });
   await test('초기화 글은 한국시간 설명과 링크를 한 메시지로만 발송한다',async()=>{
     const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce.endsWith('102'));
-    assert.equal(sent.length,1);assert.equal(sent[0].body.nonce,'r102');assert.equal((sent[0].body.flags??0)&4,0);assert.match(sent[0].body.content,/# 예정 시각: 10월 27일 01:00/);assert.ok(sent[0].body.content.includes('\nhttps://x.com/thsottiaux/status/102\n'));assert.equal(sent[0].body.embeds,undefined);
+    assert.equal(sent.length,1);assert.equal(sent[0].body.nonce,'r102');assert.equal((sent[0].body.flags??0)&4,0);assert.match(sent[0].body.content,/# 예정 시각: 10월 27일 01:00/);assert.ok(sent[0].body.content.endsWith('\nhttps://x.com/thsottiaux/status/102'));assert.equal(sent[0].body.embeds,undefined);
   });
-  await test('휴식 의미의 reset에는 링크만 보내고 초기화 공지는 보내지 않는다',async()=>{
+  await test('휴식 의미의 reset에는 일반 요약을 보내고 초기화 공지는 보내지 않는다',async()=>{
     posts=[{id:'103',text:'Day 20. Rest and reset.'},...posts];await poll();await waitFor(async()=>await settled('103'));await waitPoll();
     assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce.endsWith('103')).length,1);
   });
@@ -127,14 +127,14 @@ try{
     await poll();await waitFor(async()=>await settled('113')&&await settled('112')&&await settled('111'));await waitPoll();
     await poll();await waitPoll();
     for(const id of ['111','112','113']){
-      const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.equal(sent[0].body.content,'https://x.com/thsottiaux/status/'+id);assert.equal((sent[0].body.flags??0)&4,0);
+      const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l'+id);assert.equal(sent.length,1);assert.ok(sent[0].body.content.endsWith('\nhttps://x.com/thsottiaux/status/'+id));assert.match(sent[0].body.content,id==='111'?/새 소식/:/이미지·미디어 게시글/);assert.doesNotMatch(sent[0].body.content,/⚠️/);assert.equal((sent[0].body.flags??0)&4,0);
     }
     assert.equal((await row('112')).body,'');assert.equal(calls.filter(c=>c.kind==='ai').length,aiBefore+3);assert.equal(calls.filter(c=>c.kind==='ai'&&c.text==='').length,2);
   });
   await test('reset 없는 인용 완료 글도 저장된 예고 문맥과 함께 Gemini로 분석해 통합 전송한다',async()=>{
     posts=[{id:'114',text:'It is all propagated.',date:'Oct 25, 2026 · 6:06 AM UTC',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>await settled('114'));await waitPoll();
     const analysis=calls.find(c=>c.kind==='ai'&&c.text==='It is all propagated.');assert.ok(analysis.context.some(p=>p.id==='99'&&p.text.includes('reset')));
-    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('114'));assert.equal(sent.length,1);assert.equal(sent[0].body.content,'');assert.equal(sent[0].body.embeds[0].color,0x57F287);assert.match(sent[0].body.embeds[0].description,/정기 리셋/);assert.match(sent[0].body.embeds[0].url,/status\/114$/);
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('114'));assert.equal(sent.length,1);assert.match(sent[0].body.content,/초기화 완료 안내/);assert.equal(sent[0].body.embeds,undefined);assert.match(sent[0].body.content,/status\/114$/);
   });
   await test('진행 중인 인용 공지를 완료 메시지로 보내지 않는다',async()=>{
     posts=[{id:'115',text:'Still propagating.',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>await settled('115'));await waitPoll();const sent=calls.find(c=>c.kind==='discord'&&c.body.nonce==='r115');assert.match(sent.body.content,/초기화 진행 중/);assert.equal(sent.body.embeds,undefined);assert.doesNotMatch(sent.body.content,/초기화 완료/);
@@ -147,23 +147,22 @@ try{
     // 이전 버전에서 분석 없이 링크만 보낸 운영 이력을 재현한다.
     await db.prepare("UPDATE watched_posts SET message_id='900117',analysis_json=NULL WHERE id='117'").run();posts[0].quote={id:'109',text:'By midnight PST'};
     await queue.send({kind:'watch-reanalyze',postId:'117'});await waitFor(async()=>(await row('117'))?.reset_message_id==='900117');
-    assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l117').length,1);const edit=calls.filter(c=>c.kind==='discord'&&c.method==='PATCH');assert.equal(edit.length,1);assert.equal(edit[0].body.content,'');assert.equal(edit[0].body.embeds[0].color,0x57F287);assert.ok(edit[0].path.endsWith('/900117'));
+    assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='l117').length,1);const edit=calls.filter(c=>c.kind==='discord'&&c.method==='PATCH');assert.equal(edit.length,1);assert.match(edit[0].body.content,/초기화 완료 안내/);assert.deepEqual(edit[0].body.embeds,[]);assert.ok(edit[0].path.endsWith('/900117'));
     const before=calls.filter(c=>c.kind==='source').length;await queue.send({kind:'watch-reanalyze',postId:'117'});await poll();await waitFor(()=>calls.filter(c=>c.kind==='source').length>=before+2);await waitPoll();assert.equal(calls.filter(c=>c.kind==='discord'&&c.method==='PATCH').length,1);
   });
   await test('키워드·인용 없는 명시적 초기화도 Gemini 완료 결과로 한 번만 발송한다',async()=>{
     posts=[{id:'118',text:'Usage allowances were replenished for everyone.'},...posts];await poll();await waitFor(async()=>await settled('118'));await waitPoll();
-    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('118'));assert.equal(sent.length,1);assert.equal(sent[0].body.content,'');assert.equal(sent[0].body.embeds[0].color,0x57F287);assert.ok(calls.some(c=>c.kind==='ai'&&c.text===posts[0].text));
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce?.endsWith('118'));assert.equal(sent.length,1);assert.match(sent[0].body.content,/초기화 완료 안내/);assert.equal(sent[0].body.embeds,undefined);assert.ok(calls.some(c=>c.kind==='ai'&&c.text===posts[0].text));
     await queue.send({kind:'watch-post',postId:'118',phase:'link'});await poll();await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai'&&c.text===posts[0].text).length,1);
   });
   await test('짧은 완료 답글은 연결된 초기화 본문과 함께 분석한다',async()=>{
     threadMode=true;posts=[{id:'118',text:'Codex usage reset is being applied.'},{id:'119',text:'Finished across every account.'}];await poll();await waitFor(async()=>await settled('119'));await waitPoll();threadMode=false;
-    assert.ok(calls.find(c=>c.kind==='ai'&&c.text==='Finished across every account.').context.some(p=>p.id==='118'));assert.equal(calls.find(c=>c.kind==='discord'&&c.body.nonce==='r119').body.embeds[0].color,0x57F287);
+    assert.ok(calls.find(c=>c.kind==='ai'&&c.text==='Finished across every account.').context.some(p=>p.id==='118'));assert.match(calls.find(c=>c.kind==='discord'&&c.body.nonce==='r119').body.content,/초기화 완료 안내/);
   });
-  await test('저장형 지급 완료를 DB에 유형과 함께 저장하고 임베드로 한 번만 발송한다',async()=>{
+  await test('저장형 지급 완료를 DB에 유형과 함께 저장하고 요약으로 한 번만 발송한다',async()=>{
     posts=[{id:'120',text:'A banked reset has been credited to every account.'},...posts];await poll();await waitFor(async()=>await settled('120'));await waitPoll();
     const analysis=JSON.parse((await row('120')).analysis_json);assert.equal(analysis.reset_type,'banked');assert.equal(analysis.status,'completed');
-    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r120');assert.equal(sent.length,1);assert.equal(sent[0].body.content,'');
-    assert.equal(sent[0].body.embeds[0].title,'🔄 Codex 사용량 리셋 감지');assert.equal(sent[0].body.embeds[0].color,0x57F287);assert.match(sent[0].body.embeds[0].description,/저장형 리셋 \(banked\)/);
+    const sent=calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r120');assert.equal(sent.length,1);assert.match(sent[0].body.content,/저장형 리셋 지급 완료 안내/);assert.equal(sent[0].body.embeds,undefined);
     await queue.send({kind:'watch-post',postId:'120',phase:'reset'});await poll();await waitPoll();assert.equal(calls.filter(c=>c.kind==='discord'&&c.body.nonce==='r120').length,1);
   });
 }finally{await mf.dispose();}

@@ -8,19 +8,20 @@ const date='Oct 26, 2026 · 5:00 AM UTC',now=Date.parse('2026-10-26T06:00:00Z');
 const texts={regular:'Codex usage limits have been reset for everyone.',banked:'A banked reset has been added to every account. Use it later.'};
 const originalFetch=globalThis.fetch;
 try{
-  for(const type of ['regular','banked'])await test(`${type}의 유형과 완료 근거를 저장하고 올바른 초록색 임베드로 보낸다`,async()=>{
+  for(const type of ['regular','banked'])await test(`${type}의 유형과 완료 근거를 저장하고 구분된 X 요약으로 보낸다`,async()=>{
     const post={id:'123',date,text:texts[type]};const result={status:'completed',reset_type:type,type_evidence:post.text,evidence:post.text,time_expression:'',summary_ko:type==='banked'?'저장형 리셋이 지급됐습니다.':'사용량이 초기화됐습니다.'};
     globalThis.fetch=async(url,options)=>{
       const schema=JSON.parse(options.body).generationConfig.responseSchema;assert.ok(schema.required.includes('reset_type'));assert.ok(schema.required.includes('type_evidence'));
       return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});
     };
     const analysis=await analyzeReset({GEMINI_API_KEY:'synthetic'},post);assert.equal(analysis.reset_type,type);assert.equal(analysis.type_evidence,post.text);
-    const serialized=resetNotification(post,analysis),payload=notificationPayload(serialized),embed=payload.embeds[0];
-    assert.equal(payload.content,'');assert.equal(embed.color,0x57F287);assert.match(embed.description,type==='banked'?/유형: 저장형 리셋 \(banked\)/:/유형: 정기 리셋 \(regular\)/);assert.equal(embed.title,'🔄 Codex 사용량 리셋 감지');assert.equal(embed.description.split('\n').length,4);
-    if(type==='banked')assert.doesNotMatch(embed.description,/사용량이 초기화되었습니다/);
+    const serialized=resetNotification(post,analysis),payload=notificationPayload(serialized);
+    assert.equal(payload.embeds,undefined);assert.match(payload.content,type==='banked'?/저장형 리셋 지급 완료 안내/:/초기화 완료 안내/);
+    assert.ok(payload.content.includes('- '+result.summary_ko));
+    if(type==='banked')assert.doesNotMatch(payload.content,/사용량이 초기화되었습니다/);
     let sent;globalThis.fetch=async(url,options)=>{sent=JSON.parse(options.body);return Response.json({id:'900'});};
     await sendNotification({DISCORD_BOT_TOKEN:'synthetic',DISCORD_TEST_CHANNEL_ID:'30'},'123',serialized,'reset','800');
-    assert.equal(sent.content,'');assert.equal(sent.embeds[0].description,embed.description);assert.deepEqual(sent.allowed_mentions,{parse:[]});assert.equal(sent.flags,0);
+    assert.equal(sent.content,payload.content);assert.deepEqual(sent.embeds,[]);assert.deepEqual(sent.allowed_mentions,{parse:[]});assert.equal(sent.flags,0);
   });
   await test('없는 유형 근거와 잘못된 유형은 거부하고 생략된 구버전 유형은 unknown으로 보존한다',async()=>{
     let result={status:'completed',reset_type:'banked',type_evidence:'invented',evidence:texts.regular,summary_ko:'안내',time_expression:''};
