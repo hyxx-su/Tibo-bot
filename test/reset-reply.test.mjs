@@ -147,8 +147,8 @@ const mf=new Miniflare({modules:true,script:'export default {fetch(){return new 
 const db=await mf.getD1Database('DB');
 for(const name of ['0001_watch.sql','0003_guild_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 const env={DB:db,RESET_CHAT_ENABLED:'true',DISCORD_BOT_TOKEN:'synthetic-token'};
-const calls=[];const originalFetch=globalThis.fetch;let status=200;
-globalThis.fetch=async(url,options)=>{assert.ok(String(url).startsWith('https://discord.com/api/v10/channels/30/messages'));calls.push(JSON.parse(options.body));return status===200?Response.json({id:'900'}):Response.json({}, {status});};
+const calls=[];const originalFetch=globalThis.fetch;let status=200,retryAfter;
+globalThis.fetch=async(url,options)=>{assert.ok(String(url).startsWith('https://discord.com/api/v10/channels/30/messages'));calls.push(JSON.parse(options.body));return status===200?Response.json({id:'900'}):Response.json(retryAfter===undefined?{}:{retry_after:retryAfter}, {status});};
 async function process(overrides={},attempts=1){let ack=false,retry=null;await processResetQuestionJob({attempts,body:{...resetQuestionJob({...source,timestamp:new Date().toISOString()},'1'),...overrides},ack(){ack=true;},retry(value){retry=value;}},env);return {ack,retry};}
 try{
   await db.prepare("INSERT INTO guild_settings(guild_id,active) VALUES('20',1)").run();
@@ -172,6 +172,26 @@ try{
       const question=resetQuestionIntent(text);await process({...question,repeatCount:3});
       assert.equal(calls.at(-1).content,'초기화 관련 질문에만 답변할 수 있어. 초기화 일정이나 진행 상태가 궁금하면 물어봐!');
     }
+  });
+  await test('고정 안내는 상태 쿼리를 생략하지만 비활성 서버에는 보내지 않는다',async()=>{
+    const batches=[];const measuredEnv={...env,DB:{prepare:sql=>db.prepare(sql),batch:queries=>{batches.push(queries.length);return db.batch(queries);}}};
+    const send=async intent=>{
+      let ack=false;await processResetQuestionJob({body:{...resetQuestionJob({...source,timestamp:new Date().toISOString()},'1'),intent},attempts:1,ack(){ack=true;},retry(){throw new Error('Unexpected retry');}},measuredEnv);assert.equal(ack,true);
+    };
+    for(const intent of ['help','greeting','personal']){await send(intent);assert.equal(batches.at(-1),1);}
+    for(const intent of ['status','manual','timing','completed','remaining']){await send(intent);assert.equal(batches.at(-1),4);}
+    await db.prepare("UPDATE guild_settings SET active=0 WHERE guild_id='20'").run();
+    try{const before=calls.length;for(const intent of ['help','greeting','personal'])await send(intent);assert.equal(calls.length,before);}
+    finally{await db.prepare("UPDATE guild_settings SET active=1 WHERE guild_id='20'").run();}
+  });
+  await test('Discord 대기 시간보다 일찍 재시도하지 않고 만료될 질문은 중단한다',async()=>{
+    try{
+      status=429;retryAfter=45.2;assert.equal((await process()).retry.delaySeconds,46);
+      retryAfter=180;const tooLate=await process();assert.equal(tooLate.ack,true);assert.equal(tooLate.retry,null);
+      retryAfter=undefined;assert.equal((await process()).retry.delaySeconds,60);
+      status=503;const stale=await process({issuedAt:Date.now()-100000});assert.equal(stale.ack,true);assert.equal(stale.retry,null);
+      for(const code of [400,401,403,404,405,422]){status=code;const denied=await process();assert.equal(denied.ack,true);assert.equal(denied.retry,null);}
+    }finally{status=200;retryAfter=undefined;}
   });
   await test('봇이 나간 서버·만료된 질문·비활성화 상태는 보내지 않는다',async()=>{
     const before=calls.length;await process({issuedAt:Date.now()-121000});env.RESET_CHAT_ENABLED='false';await process();env.RESET_CHAT_ENABLED='true';await db.prepare("UPDATE guild_settings SET active=0 WHERE guild_id='20'").run();await process();assert.equal(calls.length,before);await db.prepare("UPDATE guild_settings SET active=1 WHERE guild_id='20'").run();
