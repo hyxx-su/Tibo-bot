@@ -4,6 +4,9 @@ import {analyzeReset} from '../src/reset-analysis.js';
 if(!process.env.GEMINI_API_KEY)throw new Error('GEMINI_API_KEY 환경변수가 필요합니다.');
 const resetContext=[{id:'1',text:'The Codex usage reset is now being applied.',date:'Oct 25, 2026 · 3:00 AM UTC'}];
 const cases=[
+  {name:'짧은 관용 표현의 의미 전달',text:'That tracks.',expected:'unrelated',meaning:/말이|일리|납득|이해|맞|동의|수긍|그럴/},
+  {name:'짧은 밈 답글의 의미 전달',text:'Lore accurate character.',expected:'unrelated',meaning:/설정|세계관|원작/},
+  {name:'짧은 동의의 의미 전달',text:'Exactly!',expected:'unrelated',meaning:/맞|동의|정확|바로|그렇|그거/},
   {name:'키워드 없는 완료',text:'Usage allowances were replenished for everyone.',expected:'completed'},
   {name:'짧은 완료와 초기화 문맥',text:'Finished across every account.',context:resetContext,expected:'completed'},
   {name:'문맥 없는 짧은 답변',text:'Finished.',expected:'unrelated'},
@@ -38,7 +41,8 @@ for(const entry of selected){
   attempted++;
   try{
     const result=await analyzeReset(process.env,{id:'2',date:'Oct 25, 2026 · 6:00 AM UTC',text:entry.text,context:entry.context??[]});
-    const passed=result.status===entry.expected&&(entry.resetType===undefined||result.reset_type===entry.resetType)&&(entry.time===undefined||result.time?.timestamp===entry.time)&&(entry.expected==='scheduled'||result.time_expression==='');
+    const prose=[result.title_ko,...(result.bullets??[])].join(' ');
+    const passed=result.status===entry.expected&&(entry.resetType===undefined||result.reset_type===entry.resetType)&&(entry.time===undefined||result.time?.timestamp===entry.time)&&(entry.expected==='scheduled'||result.time_expression==='')&&(!entry.meaning||(entry.meaning.test(prose)&&result.bullets.length===1&&!/게시글을 게시|내용의 게시글|내용을 게시/.test(prose)));
     totalTokens+=result.usage?.totalTokenCount??0;
     if(!passed)failures++;
     console.log(JSON.stringify({name:entry.name,expected:entry.expected,actual:result.status,passed}));
