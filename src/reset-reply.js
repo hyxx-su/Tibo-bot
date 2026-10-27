@@ -36,9 +36,9 @@ export function resetQuestionIntent(value) {
   const result=intent=>({intent,...(dayOffset===undefined?{}:{dayOffset})});
   if(days.some(day=>day!==dayOffset))return plain('clarify');
   // 날짜가 지정된 질문과 앞으로의 예고를 최근 완료 이력으로 바꾸지 않는다.
-  if(topic&&dayOffset===undefined&&/(최근|요즘|근래|지난번|마지막)/.test(text)&&
-    !/(예정|예고|계획|다음|앞으로|할거|할까|할지|할건|해줄|될까)/.test(text)&&
-    /(지난번|마지막|있었|했|됐|되었|완료|끝|한적|된적|이력|기록|언제)/.test(text))return plain('history');
+  if(topic&&dayOffset===undefined&&/(최근|요즘|요새|근래|얼마전|지난번|저번|마지막)/.test(text)&&
+    !/(예정|예고|계획|다음|앞으로|할거|할까|할지|할건|해줄|될까|되나|할예정|진행중|되는중|반영중|해줘|해주|주라|내놔|제발|부탁)/.test(text)&&
+    /(지난번|저번|마지막|있|없|했|됐|되었|완료|끝|한적|된적|한게|한건|이력|기록|언제|몇시|시각|날짜)/.test(text))return plain('history');
   if(/(카운트다운|얼마|몇분|몇시간|남았|남음|남은|남아|곧이야|시간안에돼|분뒤면|시간다됐)/.test(text))return result('remaining');
   if(/(오전이야오후|저녁전에|자정에|자기전에|오늘안에|kst로|한국날짜로며칠|다음리셋일정)/.test(text))return result('timing');
   if(/(되는중|반영중|진행|시작한거야|예고만|다음에또|한다고했|언제인지있는지)/.test(text))return result('status');
