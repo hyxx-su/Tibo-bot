@@ -42,7 +42,8 @@ test('어제 완료 뒤의 단순 언급도 어제 완료 질문을 가리지 �
   assert.match(answer([post('101','mentioned')],[event()],{dayOffset:-1},Date.parse('2026-10-26T15:01:00Z')),/^어제 정기 리셋이 실행/);
 });
 test('사이트의 출처·이력 응답은 발표 시각을 실제 계정 반영 시각으로 설명하지 않는다',()=>{
-  assert.match(answer([],[event()],{intent:'history'}),/사이트 발표 시각.*실제 계정 반영 시각과는 달라.*codex-resets/);
+  assert.match(answer([],[event()],{intent:'history'}),/사이트 발표 시각.*16:00/);
+  for(const text of [answer([],[event()],{intent:'history'}),answer([post('101','completed')],[],{intent:'history'})])assert.doesNotMatch(text,/실제 계정 반영 시각|https?:/);
   assert.match(answer([],[event()],{intent:'source'}),/사이트 실행 기록의 발표 시각.*codex-resets/);
 });
 test('잘못된 유형·미래·오래된 기록·외부 URL은 완료 근거로 사용하지 않는다',()=>{
