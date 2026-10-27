@@ -27,3 +27,25 @@ test('일반 채팅 수신부터 최근 이력 답변까지 자정 전 완료 �
   assert.doesNotMatch(result,/오늘.*(?:없|못|미확인)/);
   assert.doesNotMatch(resetQuestionReply({...input,siteResets:[{...input.siteResets[0],reset_type:'banked'}]},now,job),/정기 리셋 실행 기록/);
 });
+
+test('최근 질문 60개를 실제 메시지 진입점부터 링크 없는 이력 답변까지 검증한다',async()=>{
+  const {recentResetQuestions}=await import('./fixtures/recent-reset-questions.mjs');
+  assert.equal(recentResetQuestions.length,60);
+  assert.equal(new Set(recentResetQuestions).size,60);
+  const now=Date.parse('2026-10-27T00:00:00Z');
+  const input={state:{baseline_id:'1',last_success:now},posts:[],siteResets:[{reset_type:'regular',announced_at:'2026-10-26T07:00:00Z',original_url:null}]};
+  for(const question of recentResetQuestions){
+    const job=resetQuestionJob({id:'100',guild_id:'200',channel_id:'300',author:{id:'400'},type:0,content:'Tibo야 '+question,timestamp:new Date(now).toISOString()},'500',now);
+    assert.equal(job?.intent,'history',question);
+    const answer=resetQuestionReply(input,now,job);
+    assert.match(answer,/2026-10-26 16:00/,question);
+    assert.doesNotMatch(answer,/실제 계정 반영|https?:|오늘.*(?:없|못|미확인)/,question);
+  }
+});
+test('최근이라는 단어가 있어도 미래·진행·요청을 완료 이력으로 오인하지 않는다',()=>{
+  for(const question of ['최근 초기화 예정 있니','요즘 초기화 계획 있어?','근래 리셋 예고 있었어?','최근 다음 리셋 언제래','요새 초기화 언제 할 거야?','최근 초기화 언제 할까','최근 초기화 해줄 수 있어?','요즘 초기화 제발 해줘','요새 초기화 좀 해주라','최근 초기화 내놔','최근 초기화 진행 중이야?','최근 초기화 반영 중이야?','최근 초기화 되는 중이야?','최근 초기화 취소됐어?','최근 초기화 원문 보여줘']){
+    assert.notEqual(resetQuestionIntent(question).intent,'history',question);
+  }
+  assert.deepEqual(resetQuestionIntent('오늘 최근 초기화 있니'),{intent:'status',dayOffset:0});
+  assert.deepEqual(resetQuestionIntent('어제 최근 초기화 있었니'),{intent:'status',dayOffset:-1});
+});
