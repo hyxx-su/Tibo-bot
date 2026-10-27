@@ -125,8 +125,8 @@ function resetQuestionStatusReply({state,posts,pending,siteResets=[]},now,questi
   const sourceLink=signal=>signal.site?'https://codex-resets.com/':`https://x.com/thsottiaux/status/${signal.id}`;
   if(question.intent==='history'){
     const completed=signals.find(signal=>signal.analysis.status==='completed'&&!['banked','unknown'].includes(signal.analysis.reset_type));
-    if(completed?.site)return `최근 7일 범위에서 찾은 마지막 정기 리셋 실행 기록의 사이트 발표 시각은 ${formatKoreanTime(completed.at)}이야. 실제 계정 반영 시각과는 달라. ${sourceLink(completed)}`;
-    return completed?`최근 100개 글·7일 범위에서 찾은 마지막 완료 공지는 ${formatKoreanTime(completed.at)}에 올라왔어. 실제 계정 반영 시각과는 달라. ${sourceLink(completed)}`:'최근 100개 글·7일 범위에서는 완료 공지를 찾지 못했어.';
+    if(completed?.site)return `최근 7일 범위에서 찾은 마지막 정기 리셋 실행 기록의 사이트 발표 시각은 ${formatKoreanTime(completed.at)}이야.`;
+    return completed?`최근 100개 글·7일 범위에서 찾은 마지막 완료 공지는 ${formatKoreanTime(completed.at)}에 올라왔어.`:'최근 100개 글·7일 범위에서는 완료 공지를 찾지 못했어.';
   }
   if(['source','coverage','comparison','change'].includes(question.intent)){
     const labels={scheduled:'초기화 예고',completed:'초기화 완료',in_progress:'초기화 반영 중',mentioned:'초기화 관련 언급'};
