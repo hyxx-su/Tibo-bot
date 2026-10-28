@@ -54,7 +54,8 @@ try{
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0003_guild_channels.sql','0004_site_resets.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const id of ['100','101','102','103','104'])await db.prepare("INSERT INTO watched_posts(id,body,published_at,phase,discovered_at,analysis_json) VALUES (?,?,?,'done',0,?)").bind(id,'Usage reset is done.',new Date(now-3600000).toISOString(),JSON.stringify({status:'completed',reset_type:id==='102'?'banked':'regular',evidence:'Usage reset is done.',type_evidence:'Usage reset'})).run();
 const jobs=[],sent=[];let feed=[row('100')],siteStatus=200,siteCalls=0,discordStatus=200,queueFailure=false;
 const env={DB:db,WATCH_ENABLED:'true',SITE_RESETS_ENABLED:'true',DISCORD_TEST_GUILD_ID:'2',DISCORD_NOTIFY_CHANNEL_ID:'3',DISCORD_BOT_TOKEN:'fixture',PROBE_JOBS:{async send(job){jobs.push({body:job});},async sendBatch(batch){if(queueFailure)throw Error('Queue unavailable');jobs.push(...batch);}}};
 const state=()=>db.prepare('SELECT * FROM site_reset_state WHERE id=1').first();
@@ -84,20 +85,20 @@ try{
   });
   await test('동시에 수집해도 신규 regular·banked만 서버별 한 번 발송하고 X 이력을 보존한다',async()=>{
     await db.prepare("INSERT INTO guild_settings(guild_id,channel_id,activated_at) VALUES ('4','5',0)").run();
-    await db.prepare("INSERT INTO watched_posts(id,body,published_at,phase,discovered_at,reset_message_id) VALUES ('101','fixture','date','done',0,'8000')").run();
+    await db.prepare("UPDATE watched_posts SET reset_message_id='8000' WHERE id='101'").run();
     feed=[row('101'),row('102','banked'),...feed];await release();const before=siteCalls;
     await Promise.all([pollSiteResets(env,now),pollSiteResets(env,now)]);assert.equal(siteCalls,before+1);assert.equal(jobs.length,4);
     await Promise.all([deliverAll(),deliverAll()]);assert.equal(sent.length,4);assert.ok(sent.every(s=>s.body.content===''&&s.body.embeds[0].color===0x57F287));assert.equal(new Set(sent.map(s=>s.body.nonce)).size,4);assert.ok(sent.every(s=>s.body.nonce.length<=25));
     assert.equal((await db.prepare("SELECT reset_message_id FROM watched_posts WHERE id='101'").first()).reset_message_id,'8000');
     await release();await pollSiteResets(env,now);await deliverAll();assert.equal(sent.length,4);
   });
-  await test('원문 ID 재표현과 시각 수정은 기존 사이트 알림을 중복 발송하지 않는다',async()=>{
-    feed=[{...row('observed-101'),source:{type:'observed',url:row('101').source.url},announced_at:new Date(now-10000).toISOString()},...feed];await release();await pollSiteResets(env,now);await deliverAll();assert.equal(sent.length,4);
+  await test('원문 ID 재표현만 바뀌고 근거가 같으면 중복 발송하지 않는다',async()=>{
+    feed=[{...row('observed-101'),source:row('101').source},...feed];await release();await pollSiteResets(env,now);await deliverAll();assert.equal(sent.length,4);
   });
-  await test('Queue 발행 실패 후 저장한 대기 작업을 사이트 장애 중에도 복구한다',async()=>{
+  await test('Queue 발행 실패 뒤 사이트 장애에서는 완료 발송을 보류하고 복구 후 재시도한다',async()=>{
     feed=[row('103'),...feed];queueFailure=true;await release();await assert.rejects(pollSiteResets(env,now));assert.equal((await db.prepare("SELECT phase FROM site_reset_events WHERE event_key='site:regular:103'").first()).phase,'queued');
-    queueFailure=false;siteStatus=503;await release();await assert.rejects(pollSiteResets(env,now));await deliverAll();assert.equal(sent.length,6);assert.ok((await state()).last_error);
-    siteStatus=200;
+    queueFailure=false;siteStatus=503;await release();await assert.rejects(pollSiteResets(env,now));await deliverAll();assert.equal(sent.length,4);assert.ok((await state()).last_error);
+    siteStatus=200;await release();await pollSiteResets(env,now);await deliverAll();assert.equal(sent.length,6);
   });
   await test('429 응답은 다음 수집을 늦추고 Discord 429는 성공 서버를 재전송하지 않는다',async()=>{
     siteStatus=429;await release();await assert.rejects(pollSiteResets(env,now));assert.ok((await state()).next_poll_at>=now+180000);siteStatus=200;
@@ -116,6 +117,6 @@ try{
     await processDeliveryJob({body:{kind:'watch-delivery',postId:'paused:0',guildId:'2',deliveryKind:'site-reset'},ack(){}},{...env,SITE_RESETS_ENABLED:'false'});
     assert.equal(sent.length,before);
     assert.equal((await db.prepare("SELECT phase FROM post_deliveries WHERE post_id='paused:0'").first()).phase,'pending');
-    assert.ok((await pendingDeliveries(db,Date.now(),true)).some(job=>job.body.deliveryKind==='site-reset'));
+    assert.ok(!(await pendingDeliveries(db,Date.now(),true)).some(job=>job.body.postId.startsWith('paused:')));
   });
 }finally{globalThis.fetch=originalFetch;await mf.dispose();}

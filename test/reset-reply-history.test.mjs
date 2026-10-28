@@ -20,7 +20,7 @@ test('일반 채팅 수신부터 최근 이력 답변까지 자정 전 완료 �
   const now=Date.parse('2026-10-27T00:00:00Z');
   const job=resetQuestionJob({id:'100',guild_id:'200',channel_id:'300',author:{id:'400'},type:0,content:'Tibo야 최근에 초기화있었냐',timestamp:new Date(now).toISOString()},'500',now);
   assert.equal(job.intent,'history');
-  const input={state:{baseline_id:'1',last_success:now},pending:false,posts:[],siteResets:[{reset_type:'regular',announced_at:'2026-10-26T07:00:00Z',original_url:'https://x.com/thsottiaux/status/100'}]};
+  const input={state:{baseline_id:'1',last_success:now},pending:false,posts:[],siteResets:[{verification:'verified',missing_count:0,reset_type:'regular',announced_at:'2026-10-26T07:00:00Z',original_url:'https://x.com/thsottiaux/status/100'}]};
   const result=resetQuestionReply(input,now,job);
   assert.match(result,/2026-10-26 16:00/);
   assert.match(result,/정기 리셋 실행 기록/);
@@ -33,7 +33,7 @@ test('최근 질문 60개를 실제 메시지 진입점부터 링크 없는 이�
   assert.equal(recentResetQuestions.length,60);
   assert.equal(new Set(recentResetQuestions).size,60);
   const now=Date.parse('2026-10-27T00:00:00Z');
-  const input={state:{baseline_id:'1',last_success:now},posts:[],siteResets:[{reset_type:'regular',announced_at:'2026-10-26T07:00:00Z',original_url:null}]};
+  const input={state:{baseline_id:'1',last_success:now},posts:[],siteResets:[{verification:'verified',missing_count:0,reset_type:'regular',announced_at:'2026-10-26T07:00:00Z',original_url:null}]};
   for(const question of recentResetQuestions){
     const job=resetQuestionJob({id:'100',guild_id:'200',channel_id:'300',author:{id:'400'},type:0,content:'Tibo야 '+question,timestamp:new Date(now).toISOString()},'500',now);
     assert.equal(job?.intent,'history',question);
