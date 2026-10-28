@@ -4,6 +4,7 @@ import {readLimitedText} from './input.js';
 export async function sendNotification(env,postId,content,kind,messageId=null,channelOverride=null) {
   const channel=channelOverride??env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID;
   if(!env.DISCORD_BOT_TOKEN||!/^\d+$/.test(channel??''))throw new Error('Notification configuration missing');
+  if(kind==='site-correction'&&!messageId)throw new Error('Correction requires an existing message');
   if(messageId!==null&&!/^\d{1,20}$/.test(messageId))throw new Error('Invalid notification ID');
   const payload={...notificationPayload(content),allowed_mentions:{parse:[]}};
   const legacy=kind!=='site-reset'&&channel===(env.DISCORD_NOTIFY_CHANNEL_ID??env.DISCORD_TEST_CHANNEL_ID);
@@ -13,7 +14,7 @@ export async function sendNotification(env,postId,content,kind,messageId=null,ch
     method:messageId?'PATCH':'POST',redirect:'manual',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),
     body:JSON.stringify(payload),
   });
-  if(messageId&&response.status===404){await response.body?.cancel();return sendNotification(env,postId,content,kind,null,channel);}
+  if(messageId&&response.status===404&&kind!=='site-correction'){await response.body?.cancel();return sendNotification(env,postId,content,kind,null,channel);}
   if(!response.ok){
     const error=new Error('Notification failed');error.code='discord_'+response.status;error.permanent=[400,401,403,404].includes(response.status);
     if(response.status===429){const data=await readLimitedText(response,16384).then(JSON.parse).catch(()=>({}));error.retryAfter=Math.min(86400,Math.ceil(Number(data.retry_after)||60));}

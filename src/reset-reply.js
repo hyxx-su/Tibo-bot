@@ -112,11 +112,17 @@ function resetQuestionStatusReply({state,posts,pending,siteResets=[]},now,questi
     signals.push({analysis,at,id:post.id});
   }
   for(const event of siteResets){
+    if(event.verification!=='verified'||event.missing_count!==0)continue;
     const at=Date.parse(event.announced_at);
     if(!['regular','banked'].includes(event.reset_type)||!Number.isFinite(at)||at>now+60000||now-at>7*dayMs)continue;
     const match=typeof event.original_url==='string'?event.original_url.match(/^https:\/\/x\.com\/thsottiaux\/status\/(\d{1,20})$/):null;
     if(event.original_url!==null&&!match)continue;
-    // 같은 원문의 예고 분류보다 사이트에서 확인한 실행 기록을 우선한다.
+    // 원문 검증을 통과한 기록만 사용하며 상충하는 X 분석을 덮어쓰지 않는다.
+    const samePost=match&&posts.find(post=>post.id===match[1]);
+    if(samePost){
+      let analysis;try{analysis=JSON.parse(samePost.analysis_json);}catch{continue;}
+      if(analysis?.status!=='completed'||analysis.reset_type!==event.reset_type)continue;
+    }
     if(match){const index=signals.findIndex(signal=>!signal.site&&signal.id===match[1]);if(index>=0)signals.splice(index,1);}
     signals.push({analysis:{status:'completed',reset_type:event.reset_type},at,id:match?.[1]??'0',site:true});
   }
@@ -212,7 +218,7 @@ export async function processResetQuestionJob(message,env) {
       env.DB.prepare("SELECT EXISTS(SELECT 1 FROM watched_posts WHERE phase IN ('link','analyze','failed') AND analysis_json IS NULL) AS pending"),
     );
     const includeSiteResets=needsStatus&&env.WATCH_ENABLED==='true'&&env.SITE_RESETS_ENABLED==='true';
-    if(includeSiteResets)queries.push(env.DB.prepare('SELECT reset_type,announced_at,original_url FROM site_reset_events WHERE announced_at>=? ORDER BY announced_at DESC LIMIT 100').bind(new Date(now-7*dayMs).toISOString()));
+    if(includeSiteResets)queries.push(env.DB.prepare("SELECT reset_type,announced_at,original_url,verification,missing_count FROM site_reset_events WHERE verification='verified' AND missing_count=0 AND announced_at>=? ORDER BY announced_at DESC LIMIT 100").bind(new Date(now-7*dayMs).toISOString()));
     const results=await env.DB.batch(queries);
     const databaseMs=Date.now()-now;
     if(results[0].results[0]?.active!==1){message.ack();console.log(JSON.stringify({service:'tibo-bot',event:'reset-question-skipped',reason:'inactive-server'}));return true;}

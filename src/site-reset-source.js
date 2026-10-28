@@ -22,9 +22,14 @@ export function parseSiteResets(data,now=Date.now()) {
     if(row.source.type==='x_post'&&!url)throw new Error('Reset site original missing');
     // observed-ID와 X-ID가 달라도 같은 원문·유형이면 같은 사이트 알림이다.
     const identity=url?.split('/').at(-1)??row.id;
-    return {key:`site:${row.reset_type}:${identity}`,id:row.id,type:row.reset_type,announcedAt:new Date(row.announced_at).toISOString(),url};
+    return {key:`site:${row.reset_type}:${identity}`,id:row.id,type:row.reset_type,sourceType:row.source.type,announcedAt:new Date(row.announced_at).toISOString(),url};
   });
   return {events,nextCursor:data.pagination.has_more?cursor:null};
+}
+export function siteResetCorrection(event) {
+  const reason=event.verification_reason==='unrelated_post'?'연결된 원문은 사용량 초기화와 무관한 게시글입니다.':'사이트 기록이 철회·변경되었거나 원문의 완료 근거를 확인할 수 없어 이전 완료 안내를 정정합니다.';
+  return encodeEmbedNotification({title:'⚠️ Codex 리셋 감지 정정',color:0xFEE75C,url:event.original_url??resetSite,
+    description:`이전에 보낸 리셋 완료 알림은 확인된 완료 기록으로 사용할 수 없습니다.\n${reason}\n출처: ${resetSite}\n원문: ${event.original_url??'제공되지 않음'}`});
 }
 export async function collectSiteResets(now=Date.now()) {
   const events=new Map(),seenCursors=new Set();let cursor=null;
