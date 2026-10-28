@@ -117,12 +117,12 @@ export function postNotification(post,analysis) {
   const title=!hasText&&!related?'이미지·미디어 게시글':generatedTitle||(related?titles[analysis.status]:'Tibo 새 게시글');
   const bullets=!hasText&&!related?['Tibo가 이미지·미디어를 첨부한 게시글을 올렸습니다.']:analysis.bullets!==undefined?validatedBullets(analysis.bullets):typeof analysis.summary_ko==='string'&&analysis.summary_ko.trim()?[analysis.summary_ko.trim().slice(0,600)]:[];
   if(!bullets.length)return url;
-  const lines=related?['**## :warning: 초기화 관련 내용 감지 :warning:**']:[];
-  lines.push(`**[${discordPlainText(title.slice(0,60))}](<${url}>)**`,...bullets.map(item=>`- ${discordPlainText(item)}`));
+  const lines=related?['**## ⚠️ 초기화 관련 내용 감지 ⚠️**']:[];
   // 게시 시각과 과거 예고를 현재 예정 시각으로 표시하지 않는다.
   const timestamp=analysis.status==='scheduled'?analysis.time?.timestamp:null;
   const local=Number.isFinite(timestamp)?formatKoreanTime(timestamp).match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/):null;
-  if(local)lines.push(`# 예정 시각: ${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}${analysis.time.relation==='deadline'?'까지':''}`,'-# 한국시간(KST) · 원문 분석');
+  if(local)lines.push(`**# 예정 시각: ${Number(local[1])}월 ${Number(local[2])}일 ${local[3]}${analysis.time.relation==='deadline'?'까지':''} (KST)**`);
+  lines.push(`**[${discordPlainText(title.slice(0,60))}](<${url}>)**`,...bullets.map(item=>`- ${discordPlainText(item)}`));
   lines.push(url);
   return lines.join('\n');
 }
