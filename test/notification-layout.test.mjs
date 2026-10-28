@@ -7,12 +7,12 @@ const post={id:'123',date:'Oct 25, 2026 · 6:06 AM UTC',text:'Synthetic announce
 const card={title:'⚠️ 초기화 관련 내용 감지',url:'https://x.com/thsottiaux/status/123',color:0xFEE75C};
 for(const status of ['scheduled','in_progress','mentioned'])test(`${status}의 시각 미정 알림은 날짜와 KST 줄을 생략한다`,()=>{
   const payload=notificationPayload(resetNotification(post,{status,reset_type:'banked',summary_ko:'초기화권 안내입니다.',time:null,evidence:post.text}));
-  assert.equal(payload.embeds,undefined);assert.ok(payload.content.startsWith('**## :warning: 초기화 관련 내용 감지 :warning:**\n**['));assert.ok(payload.content.includes('\n- 초기화권 안내입니다.'));
-  assert.doesNotMatch(payload.content,/^# |^-# |시각 미정|15:06/m);assert.ok(payload.content.endsWith('\nhttps://x.com/thsottiaux/status/123'));assert.doesNotMatch(payload.content,/원문 근거|전체 완료 공지로/);
+  assert.equal(payload.embeds,undefined);assert.ok(payload.content.startsWith('**## ⚠️ 초기화 관련 내용 감지 ⚠️**\n**['));assert.ok(payload.content.includes('\n- 초기화권 안내입니다.'));
+  assert.doesNotMatch(payload.content,/예정 시각:|\(KST\)|시각 미정|15:06/);assert.ok(payload.content.endsWith('\nhttps://x.com/thsottiaux/status/123'));assert.doesNotMatch(payload.content,/원문 근거|전체 완료 공지로/);
 });
-for(const status of ['in_progress','mentioned'])test(`${status}에 과거 time이 있어도 날짜 줄을 표시하지 않는다`,()=>{
-  const payload=notificationPayload(resetNotification(post,{status,summary_ko:'안내',time:{timestamp:Date.parse('2026-10-25T08:00Z')}}));
-  assert.equal(payload.embeds,undefined);assert.doesNotMatch(payload.content,/^# |^-# /m);
+for(const status of ['in_progress','completed','mentioned','unrelated'])test(`${status}에 과거 time이 있어도 날짜 줄을 표시하지 않는다`,()=>{
+  const payload=notificationPayload(postNotification(post,{status,summary_ko:'안내',time:{timestamp:Date.parse('2026-10-25T08:00Z')}}));
+  assert.equal(payload.embeds,undefined);assert.doesNotMatch(payload.content,/예정 시각:|\(KST\)/);
 });
 test('이전 v1과 문자열 대기열을 보존하고 v2 본문과 카드를 함께 복원한다',()=>{
   assert.deepEqual(notificationPayload('tibo-embed:v1:'+JSON.stringify({...card,description:'기존 완료 안내'})),{content:'',embeds:[{...card,description:'기존 완료 안내'}]});
@@ -31,9 +31,21 @@ test('요약의 외부 링크와 Markdown은 실행되지 않고 수정 전송�
     assert.deepEqual(sent.embeds,[]);assert.equal(sent.content,payload.content);assert.deepEqual(sent.allowed_mentions,{parse:[]});assert.equal(sent.flags,0);
   }finally{globalThis.fetch=originalFetch;}
 });
-test('유효한 예정 시각만 두 줄로 표시하고 기한을 보존한다',()=>{
-  const payload=notificationPayload(resetNotification(post,{status:'scheduled',summary_ko:'초기화 예정',time:{timestamp:Date.parse('2026-10-25T08:00Z'),relation:'deadline'}}));
-  assert.match(payload.content,/^# 예정 시각: 10월 25일 17:00까지\n-# 한국시간\(KST\) · 원문 분석/m);assert.equal(payload.embeds,undefined);
+for(const [relation,suffix] of [['deadline','까지'],['at','']])test(`${relation} 예정 시각을 경고와 제목 사이 한 줄로 강조하고 기한을 구분한다`,()=>{
+  const payload=notificationPayload(resetNotification(post,{status:'scheduled',title_ko:'사용량 초기화 예정',bullets:['사용량 초기화 일정을 안내합니다.','기한은 원문의 시간 표현을 변환했습니다.'],time:{timestamp:Date.parse('2026-10-28T08:00Z'),relation}}));
+  assert.deepEqual(payload.content.split('\n'),[
+    '**## ⚠️ 초기화 관련 내용 감지 ⚠️**',
+    `**# 예정 시각: 10월 28일 17:00${suffix} (KST)**`,
+    '**[사용량 초기화 예정](<https://x.com/thsottiaux/status/123>)**',
+    '- 사용량 초기화 일정을 안내합니다.',
+    '- 기한은 원문의 시간 표현을 변환했습니다.',
+    card.url,
+  ]);
+  assert.doesNotMatch(payload.content,/원문 분석|^-# /m);assert.equal(payload.embeds,undefined);
+});
+for(const timestamp of [null,undefined,NaN,Infinity])test(`유효하지 않은 예정 시각 ${timestamp}는 날짜 줄을 만들지 않는다`,()=>{
+  const content=postNotification(post,{status:'scheduled',summary_ko:'초기화 예정',time:{timestamp,relation:'deadline'}});
+  assert.doesNotMatch(content,/예정 시각:|\(KST\)/);assert.equal(content.split('\n').length,4);
 });
 test('없는 근거를 추가하지 않고 긴 요약도 링크와 상태를 보존한다',()=>{
   const payload=notificationPayload(resetNotification(post,{status:'mentioned',summary_ko:'*'.repeat(600),evidence:'invented'}));
@@ -51,7 +63,7 @@ test('원문 카드의 외부 URL·과대 본문·합산 한도를 거부하고 
 for(const status of ['scheduled','in_progress','completed','mentioned','unrelated'])test(`${status} 제목과 하단은 현재 글의 같은 링크이고 요약은 목록이다`,()=>{
   const content=postNotification(post,{status,title_ko:'새 기능 안내',summary_ko:'새 기능을 안내합니다.',reset_type:'banked',time:null});
   const lines=content.split('\n');const offset=status==='unrelated'?0:1;
-  assert.equal(lines[0].startsWith('**## :warning:'),status!=='unrelated');
+  assert.equal(lines[0].startsWith('**## ⚠️'),status!=='unrelated');
   assert.match(lines[offset],/^\*\*\[.+\]\(<https:\/\/x.com\/thsottiaux\/status\/123>\)\*\*$/);
   assert.equal(lines[offset],'**[새 기능 안내](<https://x.com/thsottiaux/status/123>)**');assert.equal(lines[offset+1],'- 새 기능을 안내합니다.');assert.equal(lines.at(-1),card.url);
   assert.equal(lines.length,offset+3);
