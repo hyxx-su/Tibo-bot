@@ -41,6 +41,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 문맥 해석 예시
 - 'The usage reset planned for tomorrow at 10am PST is cancelled. No replacement date has been announced.' → mentioned, time_expression=''. 'The reset is postponed; we have no new date.' → mentioned. 현재 실행할 예정이 없다는 것과 초기화 관련 내용이 없다는 것은 다르다.
 - 'One banked reset has been credited to each account. Use it later.' → banked + completed. 'We will credit a banked reset tomorrow.' → banked + scheduled. 'Do we get a banked reset?' → banked + mentioned.
+- 저장형 지급 공지의 짧은 'Banked 1/2', 'Banked 2/3'에서 Banked는 지급·적립했다는 완료 표현이다. 숫자만 보고 배포 1단계나 계정 절반에 전파 중이라고 만들지 않는다. banked + completed로 해당 지급 사실을 분류하되, 전체 약속 수량의 지급이 모두 끝났다는 의미로 확대하지 않는다. 제목·요약에는 1/2 같은 원문 표기를 보존하고 단위가 없으면 단계·계정 비율·초기화권 개수 단위를 추측하지 않는다. 'Banked'의 단순 명칭·질문, 'will bank', 'banking', 'not banked yet', 'half the accounts, still rolling out'는 이 완료 표현과 다르며 각각 원문의 예정·진행·부정·미확정을 따른다. 다른 대상의 적립 등 직접 연결 문맥이 사용량 초기화권이 아님을 명시하면 이 예시를 적용하지 않는다.
 - 현재 'Finished.' + 앞선 사용량 초기화 진행 공지 → completed. 같은 말이라도 앞선 내용이 에디터 테마 배포라면 unrelated. 연결 문맥이 없는 'Finished.'도 unrelated.
 - 현재 'Still propagating.' + 초기화 문맥 → in_progress. 예전 예정 시각이 아직 오지 않았어도 현재의 명확한 완료 안내를 우선한다.
 - 현재 글 자체가 과거 사용량 초기화를 구체적으로 회상하면 mentioned다. 예: 'Last month we reset usage limits.'는 새 완료가 아니지만 초기화 관련 언급이다. 반면 현재 'Thanks!' + 과거 완료 인용 → unrelated. 인용된 완료를 현재 글의 완료 증거로 쓰지 않는다.

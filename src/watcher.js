@@ -104,6 +104,26 @@ async function replayPost(env,postId) {
   log({event:'watch-replay',found:true});
 }
 
+async function reviewBankedPost(env,postId) {
+  if(!/^\d{1,20}$/.test(postId??''))throw new Error('Invalid banked review post');
+  const row=await env.DB.prepare("SELECT * FROM watched_posts WHERE id=? AND phase='done' AND lease_until=0").bind(postId).first();
+  if(!row)return;
+  const previous=JSON.parse(row.analysis_json??'null');
+  // 관리자 Queue의 명시적 요청에만 적용한다. 사이트 표시는 완료 판단에 전달하지 않는다.
+  if(previous?.banked_review_version===1||previous?.reset_type!=='banked'||!['in_progress','mentioned'].includes(previous.status)||!/^Banked\s+[1-9]\d*\s*\/\s*[1-9]\d*[.!]?$/i.test(row.body.trim()))return;
+  if(!await reserveAnalysis(env.DB,Date.now(),Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100))))throw new Error('Review analysis budget');
+  const post=await resolveQuoteContext(env.DB,{id:row.id,text:row.body,date:row.published_at,context:JSON.parse(row.context_json??'[]')});
+  const analysis={...await analyzeReset(env,post),banked_review_version:1,banked_review_id:crypto.randomUUID()};
+  const saved=JSON.stringify(analysis),content=postNotification(post,analysis);
+  // 읽은 뒤 분석이 바뀌었다면 덮어쓰지 않는다. 기존 메시지 ID를 보존해 수정 발송한다.
+  await env.DB.batch([
+    env.DB.prepare("UPDATE watched_posts SET analysis_json=? WHERE id=? AND phase='done' AND lease_until=0 AND analysis_json=?").bind(saved,row.id,row.analysis_json),
+    env.DB.prepare("UPDATE post_deliveries SET content=?,phase='pending',attempts=0,next_attempt=0,last_error=NULL WHERE post_id=? AND kind='reset' AND phase='done' AND message_id IS NOT NULL AND lease_until=0 AND EXISTS(SELECT 1 FROM watched_posts WHERE id=? AND analysis_json=?)").bind(content,row.id,row.id,saved),
+  ]);
+  await dispatchPending(env);
+  log({event:'watch-banked-reviewed',status:analysis.status});
+}
+
 async function reanalyzePost(env,postId) {
   if(!/^\d{1,20}$/.test(postId??''))throw new Error('Invalid reanalysis post');
   const page=await collectTimelinePage(env.NITTER_BASE_URL);
@@ -127,14 +147,15 @@ export async function processWatchJob(message,env) {
   if(!watchEnabled(env)){message.ack();return true;}
   try{
     if(job.kind==='watch-poll')await poll(env,job);
-    else if(job.kind==='watch-reanalyze')await reanalyzePost(env,job.postId);
+    else if(job.kind==='watch-reanalyze'){if(job.reviewBanked===true)await reviewBankedPost(env,job.postId);else await reanalyzePost(env,job.postId);}
     else if(job.kind==='watch-replay')await replayPost(env,job.postId);
     else await processPost(env,job);
     message.ack();
   }catch{
     log({event:'watch-job-failed',kind:job.kind});
     // 다음 Cron이 수집과 D1 미완료 작업을 재개하므로 동일 수집원을 즉시 두드리지 않는다.
-    if(job.cursor&&message.attempts<3)message.retry({delaySeconds:60});else message.ack();
+    if(job.reviewBanked===true&&message.attempts<3)message.retry({delaySeconds:600});
+    else if(job.cursor&&message.attempts<3)message.retry({delaySeconds:60});else message.ack();
   }
   return true;
 }
