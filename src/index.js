@@ -1,11 +1,11 @@
-import {scheduleSiteResets,processSiteResetJob} from './site-reset-watch.js';
+import {processSiteResetJob} from './site-reset-watch.js';
 import {processGuildJob} from './guild-settings.js';
 import {maintainGateway} from './gateway.js';
 import {maintainBotProfile} from './bot-profile.js';
 export {DiscordGateway} from './gateway.js';
 export {DiscordCommandGuard} from './command-guard.js';
 import {handleDiscord,processDiscordJob} from './discord.js';
-import {scheduleWatch,processWatchJob} from './watcher.js';
+import {processWatchJob} from './watcher.js';
 import {processResetQuestionJob} from './reset-reply.js';
 
 export default {
@@ -19,7 +19,12 @@ export default {
     return new Response('Not found',{status:404});
   },
   async scheduled(controller,env) {
-    await Promise.all([scheduleWatch(env),scheduleSiteResets(env),maintainGateway(env),maintainBotProfile(env,controller.scheduledTime)]);
+    // 매분 확인은 Cron에서 직접 실행한다. 분석·전송·페이지 재시도만 Queue에 보존한다.
+    await Promise.all([
+      processWatchJob({body:{kind:'watch-poll'},attempts:1,ack(){}},env),
+      processSiteResetJob({body:{kind:'site-reset-poll'},ack(){}},env),
+      maintainGateway(env),maintainBotProfile(env,controller.scheduledTime),
+    ]);
   },
   async queue(batch,env) {
     for(const message of batch.messages){

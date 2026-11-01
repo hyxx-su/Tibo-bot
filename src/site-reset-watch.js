@@ -41,10 +41,14 @@ async function reconcileSiteResets(env,events,now,token) {
         verification='retracted';reason=checked.reason;
       }else{verification=checked.verification;reason=checked.reason;}
     }
-    statements.push(env.DB.prepare(`UPDATE site_reset_events SET source_type=?,verification=?,verification_reason=?,last_seen_at=?,missing_count=?,announced_at=?,content=? WHERE event_key=? AND ${guard}`)
-      .bind(event?.sourceType??row.source_type,verification,reason,event?now:row.last_seen_at,missing,
-        verification==='retracted'?row.announced_at:event?.announcedAt??row.announced_at,
-        event&&verification!=='retracted'?siteResetNotification(event):row.content,row.event_key,token));
+    const sourceType=event?.sourceType??row.source_type;
+    const announcedAt=verification==='retracted'?row.announced_at:event?.announcedAt??row.announced_at;
+    const content=event&&verification!=='retracted'?siteResetNotification(event):row.content;
+    // 최신 수집 시각은 공통 state에 한 번 저장한다. 동일한 과거 행을 매분 쓰지 않는다.
+    if(sourceType!==row.source_type||verification!==row.verification||reason!==row.verification_reason||missing!==row.missing_count||announcedAt!==row.announced_at||content!==row.content){
+      statements.push(env.DB.prepare(`UPDATE site_reset_events SET source_type=?,verification=?,verification_reason=?,last_seen_at=?,missing_count=?,announced_at=?,content=? WHERE event_key=? AND ${guard}`)
+        .bind(sourceType,verification,reason,event?now:row.last_seen_at,missing,announcedAt,content,row.event_key,token));
+    }
     if(['rejected','retracted'].includes(verification)){
       // 보낸 서버와 메시지 ID를 보존한다. 정정 실패를 신규 메시지 전송으로 대체하지 않는다.
       const content=siteResetCorrection({...row,verification_reason:reason});
@@ -55,7 +59,8 @@ async function reconcileSiteResets(env,events,now,token) {
     }
   }
   // 갱신과 정정 대기열은 같은 트랜잭션으로 기록한다.
-  if(statements.length)await env.DB.batch(statements);
+  statements.push(env.DB.prepare('UPDATE site_reset_state SET initialized_at=COALESCE(initialized_at,?),last_success=?,last_error=NULL WHERE id=1 AND claim_token=?').bind(now,now,token));
+  await env.DB.batch(statements);
 }
 export async function pollSiteResets(env,now=Date.now()) {
   const token=crypto.randomUUID();
@@ -65,12 +70,12 @@ export async function pollSiteResets(env,now=Date.now()) {
   try{
     const events=await collectSiteResets(now);
     const guard='EXISTS(SELECT 1 FROM site_reset_state WHERE id=1 AND claim_token=?)';
-    const statements=events.map(event=>env.DB.prepare(`INSERT OR IGNORE INTO site_reset_events
+    const known=new Set((await env.DB.prepare('SELECT event_key FROM site_reset_events').all()).results.map(row=>row.event_key));
+    const statements=events.filter(event=>!known.has(event.key)).map(event=>env.DB.prepare(`INSERT OR IGNORE INTO site_reset_events
       (event_key,source_id,reset_type,announced_at,original_url,content,discovered_at,phase)
       SELECT ?,?,?,?,?,?,?,? WHERE ${guard}`)
       .bind(event.key,event.id,event.type,event.announcedAt,event.url,siteResetNotification(event),now,state.initialized_at===null?'baseline':'pending',token));
-    statements.push(env.DB.prepare('UPDATE site_reset_state SET initialized_at=COALESCE(initialized_at,?),last_success=?,last_error=NULL WHERE id=1 AND claim_token=?').bind(now,now,token));
-    await env.DB.batch(statements);
+    if(statements.length)await env.DB.batch(statements);
     await reconcileSiteResets(env,events,now,token);
     await dispatchSiteResets(env);
     console.log(JSON.stringify({service:'tibo-bot',event:'site-reset-poll',baseline:state.initialized_at===null,records:events.length}));

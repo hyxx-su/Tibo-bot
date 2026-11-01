@@ -12,7 +12,7 @@ export async function queueDeliveries(env,post,content,kind) {
 
 export async function pendingDeliveries(db,now,includeSiteResets=true) {
   // 중지한 사이트 알림이 조회 상한을 차지하여 X 알림의 복구를 막지 않게 한다.
-  const siteFilter=includeSiteResets?"AND (kind!='site-reset' OR EXISTS(SELECT 1 FROM site_reset_events e WHERE e.event_key=post_deliveries.post_id AND e.verification='verified' AND e.missing_count=0 AND e.last_seen_at>=?))":"AND kind NOT IN ('site-reset','site-correction')";
+  const siteFilter=includeSiteResets?"AND (kind!='site-reset' OR EXISTS(SELECT 1 FROM site_reset_events e WHERE e.event_key=post_deliveries.post_id AND e.verification='verified' AND e.missing_count=0 AND EXISTS(SELECT 1 FROM site_reset_state s WHERE s.id=1 AND s.last_error IS NULL AND s.last_success>=?)))":"AND kind NOT IN ('site-reset','site-correction')";
   const query=db.prepare(`SELECT post_id,guild_id,kind FROM post_deliveries WHERE phase='pending' AND next_attempt<=? AND lease_until<=? ${siteFilter} LIMIT 10`);
   const {results}=await query.bind(...(includeSiteResets?[now,now,now-180000]:[now,now])).all();
   return results.map(row=>({body:{kind:'watch-delivery',postId:row.post_id,guildId:row.guild_id,deliveryKind:row.kind}}));
@@ -26,8 +26,8 @@ export async function processDeliveryJob(message,env) {
       .bind(Date.now()+90000,token,job.postId,job.guildId,job.deliveryKind,Date.now(),Date.now()).first();
     if(!row){message.ack();return true;}
     if(row.kind==='site-reset'){
-      const event=await env.DB.prepare('SELECT verification,missing_count,last_seen_at FROM site_reset_events WHERE event_key=?').bind(row.post_id).first();
-      if(event?.verification!=='verified'||event.missing_count!==0||event.last_seen_at<Date.now()-180000){
+      const event=await env.DB.prepare('SELECT e.verification,e.missing_count,s.last_success,s.last_error FROM site_reset_events e CROSS JOIN site_reset_state s WHERE e.event_key=? AND s.id=1').bind(row.post_id).first();
+      if(event?.verification!=='verified'||event.missing_count!==0||!Number.isFinite(event.last_success)||event.last_error!==null||event.last_success<Date.now()-180000){
         await env.DB.prepare("UPDATE post_deliveries SET lease_until=0,claim_token=NULL,next_attempt=? WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(Date.now()+60000,row.post_id,row.guild_id,row.kind,token).run();
         message.ack();return true;
       }
