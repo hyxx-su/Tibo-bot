@@ -9,9 +9,9 @@ const field=(data,name)=>data.embeds.flatMap(embed=>embed.fields).find(field=>fi
 test('정상 상태는 하나의 비공개 임베드와 실제 채널·한국시간을 표시한다',()=>{
   const data=statusMessage(base);
   assert.match(data.embeds[0].title,/✅ 알림 정상 작동 중/);
-  assert.equal(data.embeds.length,1);assert.equal(field(data,'알림 채널'),'<#300>');
+  assert.equal(data.embeds.length,1);assert.equal(field(data,'Tibo 게시글'),'<#300>');
   assert.match(field(data,'최근 확인'),/2026-10-25 20:36/);assert.match(field(data,'최근 확인'),/<t:1792928160:R>/);
-  assert.equal(data.embeds[0].fields.length,2);assert.doesNotMatch(JSON.stringify(data),/감시 기준점|처리 완료|처리 실패|전송 대기|전송 실패|5건/);
+  assert.equal(data.embeds[0].fields.length,3);assert.doesNotMatch(JSON.stringify(data),/감시 기준점|처리 완료|처리 실패|전송 대기|전송 실패|5건/);
   assert.equal(data.flags,64);assert.deepEqual(data.allowed_mentions,{parse:[]});
 });
 
@@ -36,7 +36,7 @@ for(const status of ['reconnecting','disabled','unavailable'])test(`Discord ${st
 });
 
 for(const channelId of [undefined,'not-a-channel'])test(`알림 채널 미설정 ${channelId}는 설정 방법을 표시한다`,()=>{
-  const data=statusMessage({...base,channelId});assert.match(data.embeds[0].title,/🟡/);assert.equal(field(data,'알림 채널'),'미설정');assert.match(data.embeds[0].description,/채널/);
+  const data=statusMessage({...base,channelId});assert.match(data.embeds[0].title,/🟡/);assert.equal(field(data,'Tibo 게시글'),'꺼짐');assert.match(data.embeds[0].description,/채널/);
 });
 
 test('실제 전송 실패가 있으면 건수를 노출하지 않고 권한 확인을 안내한다',()=>{

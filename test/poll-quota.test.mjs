@@ -8,7 +8,7 @@ import {pendingDeliveries,processDeliveryJob} from '../src/deliveries.js';
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0006_notification_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 let writes=0;
 // first()도 RETURNING의 실제 D1 meta를 측정한다. 테스트 준비 쓰기는 합산하지 않는다.
 const count=result=>{writes+=result.meta.rows_written;return result;};

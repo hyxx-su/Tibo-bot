@@ -9,7 +9,7 @@ import {DiscordGateway} from '../src/gateway.js';
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0003_guild_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0003_guild_channels.sql','0006_notification_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 const queued=[],sent=[];let failQueue=false,sendErrors=new Map(),channels=[],channelsHook=null,guildFailure=0;
 const channel=id=>({id,guild_id:'20',type:0,position:Number(id),permission_overwrites:[]});
 const env={DB:db,DISCORD_APPLICATION_ID:'1',DISCORD_BOT_TOKEN:'synthetic',DISCORD_TEST_GUILD_ID:'2',DISCORD_NOTIFY_CHANNEL_ID:'3',WATCH_ENABLED:'true',PROBE_JOBS:{async send(job){if(failQueue)throw Error('Synthetic queue failure');queued.push(job);}}};
@@ -34,7 +34,7 @@ globalThis.fetch=async(url,options={})=>{
 };
 const settings=id=>db.prepare('SELECT * FROM guild_settings WHERE guild_id=?').bind(id).first();
 async function setup(){
-  await db.batch([db.prepare('DELETE FROM post_deliveries'),db.prepare('DELETE FROM guild_settings'),db.prepare("INSERT INTO guild_settings(guild_id,channel_id,config_event,activated_at,welcome_message_id,welcome_channel_id) VALUES('20','30','100',1,'8000','31')")]);
+  await db.batch([db.prepare('DELETE FROM post_deliveries'),db.prepare('DELETE FROM guild_settings'),db.prepare("INSERT INTO guild_settings(guild_id,channel_id,reset_channel_id,setup_complete,config_event,activated_at,welcome_message_id,welcome_channel_id) VALUES('20','30','30',1,'100',1,'8000','31')")]);
   queued.length=0;sent.length=0;failQueue=false;sendErrors=new Map();channels=[channel('31'),channel('32')];channelsHook=null;guildFailure=0;
 }
 async function addDelivery(id,guildId='20',channelId='30',phase='pending'){
@@ -78,7 +78,7 @@ try{
     await queueDeliveries(env,{id:'11',message_id:null,discovered_at:Date.now()},'new post','link');await deliver('11');assert.equal(sent.at(-1).path,'/channels/32/messages');
   });
   await test('안내 채널을 조회하는 사이 재설정하면 오래된 안내를 보내지 않는다',async()=>{
-    await setup();await recordChannelDeletion(env,'20','30');channelsHook=()=>db.prepare("UPDATE guild_settings SET channel_id='32',config_event='200' WHERE guild_id='20'").run();
+    await setup();await recordChannelDeletion(env,'20','30');channelsHook=()=>db.prepare("UPDATE guild_settings SET channel_id='32',config_event='200',reselect_needed=0 WHERE guild_id='20'").run();
     await prompt();assert.equal(sent.length,0);assert.equal((await settings('20')).channel_id,'32');
   });
   await test('시스템 채널에 권한이 없으면 전송 가능한 다른 텍스트 채널을 사용한다',async()=>{

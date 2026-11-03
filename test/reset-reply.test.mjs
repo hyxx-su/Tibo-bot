@@ -149,7 +149,7 @@ test('반복 질문에도 현재 상태를 답하고 안내·인사·직접 실�
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0003_guild_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0003_guild_channels.sql','0006_notification_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 const env={DB:db,RESET_CHAT_ENABLED:'true',DISCORD_BOT_TOKEN:'synthetic-token'};
 const calls=[];const originalFetch=globalThis.fetch;let status=200,retryAfter;
 globalThis.fetch=async(url,options)=>{assert.ok(String(url).startsWith('https://discord.com/api/v10/channels/30/messages'));calls.push(JSON.parse(options.body));return status===200?Response.json({id:'900'}):Response.json(retryAfter===undefined?{}:{retry_after:retryAfter}, {status});};

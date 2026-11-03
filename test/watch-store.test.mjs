@@ -6,7 +6,7 @@ import {recordPage,readWatchStatus} from '../src/watch-store.js';
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0006_notification_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 const post=id=>({id:String(id),text:'합성 게시글 '+id,date:'Oct 26, 2026 · 12:00 AM UTC',context:[]});
 const row=id=>db.prepare('SELECT * FROM watched_posts WHERE id=?').bind(String(id)).first();
 let insertStatements=0;

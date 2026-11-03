@@ -54,7 +54,7 @@ try{
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0006_notification_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 for(const id of ['100','101','102','103','104'])await db.prepare("INSERT INTO watched_posts(id,body,published_at,phase,discovered_at,analysis_json) VALUES (?,?,?,'done',0,?)").bind(id,'Usage reset is done.',new Date(now-3600000).toISOString(),JSON.stringify({status:'completed',reset_type:id==='102'?'banked':'regular',evidence:'Usage reset is done.',type_evidence:'Usage reset'})).run();
 const jobs=[],sent=[];let feed=[row('100')],siteStatus=200,siteCalls=0,discordStatus=200,queueFailure=false;
 const env={DB:db,WATCH_ENABLED:'true',SITE_RESETS_ENABLED:'true',DISCORD_TEST_GUILD_ID:'2',DISCORD_NOTIFY_CHANNEL_ID:'3',DISCORD_BOT_TOKEN:'fixture',PROBE_JOBS:{async send(job){jobs.push({body:job});},async sendBatch(batch){if(queueFailure)throw Error('Queue unavailable');jobs.push(...batch);}}};
@@ -84,7 +84,7 @@ try{
     const calls=siteCalls;await pollSiteResets(env,now+1000);assert.equal(siteCalls,calls);await release();await pollSiteResets(env,now);assert.equal(jobs.length,0);
   });
   await test('동시에 수집해도 신규 regular·banked만 서버별 한 번 발송하고 X 이력을 보존한다',async()=>{
-    await db.prepare("INSERT INTO guild_settings(guild_id,channel_id,activated_at) VALUES ('4','5',0)").run();
+    await db.prepare("INSERT INTO guild_settings(guild_id,channel_id,reset_channel_id,activated_at,setup_complete) VALUES ('4','5','5',0,1)").run();
     await db.prepare("UPDATE watched_posts SET reset_message_id='8000' WHERE id='101'").run();
     feed=[row('101'),row('102','banked'),...feed];await release();const before=siteCalls;
     await Promise.all([pollSiteResets(env,now),pollSiteResets(env,now)]);assert.equal(siteCalls,before+1);assert.equal(jobs.length,4);

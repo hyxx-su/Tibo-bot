@@ -28,7 +28,7 @@ test('검증되지 않은 사이트 기록은 채팅 완료·최근 이력 답�
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0006_notification_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 const row=(id,type='regular')=>({id,reset_type:type,announced_at:date,source:{type:'x_post',author:'thsottiaux',url:`https://x.com/thsottiaux/status/${id}`}});
 const jobs=[],sent=[];let feed=[row('100')],status=200,discordStatus=200;
 const env={DB:db,WATCH_ENABLED:'true',SITE_RESETS_ENABLED:'true',DISCORD_BOT_TOKEN:'synthetic',PROBE_JOBS:{async sendBatch(batch){jobs.push(...batch);}}};
@@ -46,7 +46,7 @@ async function save(id,analysis=completed,text='It is done.'){
 }
 const record=id=>db.prepare('SELECT * FROM site_reset_events WHERE event_key=?').bind('site:regular:'+id).first();
 try{
-  await db.prepare("INSERT INTO guild_settings(guild_id,channel_id) VALUES('20','30')").run();
+  await db.prepare("INSERT INTO guild_settings(guild_id,channel_id,reset_channel_id,setup_complete) VALUES('20','30','30',1)").run();
   await test('초기 기준점은 재발송하지 않으며 검증 대기 글은 분석 완료 후 한 번만 발송한다',async()=>{
     await save('100');await poll();await deliver();assert.equal(sent.length,0);
     feed.unshift(row('200'));await poll();await deliver();assert.equal(sent.length,0);assert.equal((await record('200')).verification,'pending');

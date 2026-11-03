@@ -26,7 +26,7 @@ function run(existing,failRegistration=false){
 test('알림설정을 채널로 바꿀 때 기존 명령 ID와 관리자·채널 옵션을 유지한다',()=>{
   const result=run([{id:'10',name:'알림설정',type:1},{id:'30',name:'상태',type:1}]);assert.equal(result.status,0);
   const renamed=result.requests.find(row=>row.method==='PATCH');assert.ok(renamed.path.endsWith('/commands/10'));
-  assert.equal(renamed.body.name,'채널');assert.equal(renamed.body.default_member_permissions,'32');assert.deepEqual(renamed.body.contexts,[0]);assert.deepEqual(renamed.body.options[0].channel_types,[0,5]);assert.equal(result.requests.filter(row=>row.method==='DELETE').length,0);
+  assert.equal(renamed.body.name,'채널');assert.equal(renamed.body.default_member_permissions,'32');assert.deepEqual(renamed.body.contexts,[0]);assert.deepEqual(renamed.body.options.find(o=>o.name==='채널').channel_types,[0,5]);assert.equal(result.requests.filter(row=>row.method==='DELETE').length,0);
 });
 test('새 이름이 이미 있으면 갱신 후 이전 이름만 제거하고 다른 명령을 보존한다',()=>{
   const result=run([{id:'10',name:'알림설정',type:1},{id:'20',name:'채널',type:1},{id:'40',name:'검증',type:1},{id:'50',name:'기타',type:1},{id:'60',name:'알림설정',type:2}]);assert.equal(result.status,0);

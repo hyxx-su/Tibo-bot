@@ -49,6 +49,7 @@ const schema=await readFile(new URL('../migrations/0001_watch.sql',import.meta.u
 await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
 await db.prepare(await readFile(new URL('../migrations/0002_thread_context.sql',import.meta.url),'utf8')).run();
 await db.batch((await readFile(new URL('../migrations/0003_guild_channels.sql',import.meta.url),'utf8')).split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
+await db.batch((await readFile(new URL('../migrations/0006_notification_channels.sql',import.meta.url),'utf8')).split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
 async function waitFor(fn){const end=Date.now()+10000;while(Date.now()<end){if(await fn())return;await new Promise(resolve=>setTimeout(resolve,30));}throw new Error('Watch fixture timed out');}
 const row=id=>db.prepare('SELECT * FROM watched_posts WHERE id=?').bind(id).first();
 const settled=async id=>(await row(id))?.phase==='done'&&!(await db.prepare("SELECT 1 FROM post_deliveries WHERE post_id=? AND phase='pending'").bind(id).first());

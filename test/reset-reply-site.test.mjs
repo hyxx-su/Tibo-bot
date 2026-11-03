@@ -60,7 +60,7 @@ test('기존 DB의 기준점 기록도 채팅에서 읽으며 추가 외부 조�
   const originalFetch=globalThis.fetch;
   try{
     const db=await mf.getD1Database('DB');
-    for(const name of ['0001_watch.sql','0003_guild_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+    for(const name of ['0001_watch.sql','0003_guild_channels.sql','0006_notification_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
     await db.prepare("INSERT INTO guild_settings(guild_id,active) VALUES('20',1)").run();
     await db.prepare("UPDATE watch_state SET baseline_id='1',last_success=? WHERE id=1").bind(Date.now()).run();
     await db.prepare("INSERT INTO site_reset_events(event_key,source_id,reset_type,announced_at,original_url,content,discovered_at,phase,verification) VALUES('site:regular:100','100','regular',?,NULL,'synthetic',?,'baseline','verified')").bind(new Date().toISOString(),Date.now()).run();

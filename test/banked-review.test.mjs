@@ -7,7 +7,7 @@ import {pollSiteResets} from '../src/site-reset-watch.js';
 import {processDeliveryJob} from '../src/deliveries.js';
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
-for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0006_notification_channels.sql','0004_site_resets.sql','0005_site_reset_verification.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
 const date=new Date(Date.now()-60000).toISOString(),text='Banked 2/3';
 const old={status:'in_progress',reset_type:'banked',type_evidence:text,evidence:text,title_ko:'지급 2단계 진행',summary_ko:'배포 2단계가 진행 중이다.',time_expression:''};
 const fresh={...old,status:'completed',title_ko:'저장형 리셋 지급 안내 (2/3)',bullets:['저장형 리셋 지급을 2/3으로 안내했다.']};
@@ -27,7 +27,7 @@ async function poll(){await db.prepare('UPDATE site_reset_state SET next_poll_at
 const review=(id='200')=>processWatchJob({body:{kind:'watch-reanalyze',postId:id,reviewBanked:true},attempts:1,ack(){},retry(){throw new Error('Unexpected retry');}},env);
 async function drain(){for(const job of jobs.splice(0))await processDeliveryJob({...job,ack(){}},env);}
 try{
-  await db.prepare("INSERT INTO guild_settings(guild_id,channel_id) VALUES('20','30')").run();
+  await db.prepare("INSERT INTO guild_settings(guild_id,channel_id,reset_channel_id,setup_complete) VALUES('20','30','30',1)").run();
   await db.prepare("INSERT INTO watched_posts(id,body,published_at,phase,discovered_at,analysis_json) VALUES('200',?,?,'done',0,?)").bind(text,date,JSON.stringify(old)).run();
   await db.prepare("INSERT INTO post_deliveries(post_id,guild_id,kind,channel_id,content,message_id,phase) VALUES('200','20','reset','30','old','900','done')").run();
   feed=[source('100')];await poll();feed.push(source('200'));await poll();jobs.length=0;

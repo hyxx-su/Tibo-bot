@@ -40,13 +40,14 @@ const mf=new Miniflare({
 const setupDb=await mf.getD1Database('DB');
 await setupDb.batch((await readFile(new URL('../migrations/0001_watch.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>setupDb.prepare(s)));
 await setupDb.batch((await readFile(new URL('../migrations/0003_guild_channels.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>setupDb.prepare(s)));
+await setupDb.batch((await readFile(new URL('../migrations/0006_notification_channels.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>setupDb.prepare(s)));
 const base={type:2,application_id:'1',guild_id:'2',channel_id:'3',id:'9001',member:{permissions:'32'},token:'synthetic-interaction-token',data:{name:'검증'}};
 async function signed(raw,overrides={}){
   const timestamp=overrides['X-Signature-Timestamp']??String(Math.floor(Date.now()/1000));
   const signature=Buffer.from(await webcrypto.subtle.sign('Ed25519',keys.privateKey,new TextEncoder().encode(timestamp+raw))).toString('hex');
   return mf.dispatchFetch('http://probe/discord',{method:'POST',headers:{'X-Signature-Ed25519':signature,'X-Signature-Timestamp':timestamp,...overrides},body:raw});
 }
-async function waitFor(fn){const deadline=Date.now()+5000;while(Date.now()<deadline){if(fn())return;await new Promise(resolve=>setTimeout(resolve,25));}throw new Error('Fixture pipeline timed out');}
+async function waitFor(fn){const deadline=Date.now()+5000;while(Date.now()<deadline){if(await fn())return;await new Promise(resolve=>setTimeout(resolve,25));}throw new Error('Fixture pipeline timed out');}
 try{
   await check('GET is refused',async()=>assert.equal((await mf.dispatchFetch('http://probe/discord')).status,405));
   await check('missing signature is refused',async()=>assert.equal((await mf.dispatchFetch('http://probe/discord',{method:'POST',body:'{}'})).status,401));
@@ -103,20 +104,38 @@ try{
   });
   await check('일반 사용자와 DM의 메뉴 선택은 설정을 변경하지 않는다',async()=>{
     for(const fields of [{member:{permissions:'0',user:{id:'90'}}},{guild_id:undefined}]){
-      const response=await(await signed(JSON.stringify({...base,type:3,guild_id:'20',data:{custom_id:'tibo:notify-channel',values:['30']},...fields}))).json();assert.equal(response.type,4);assert.equal(response.data.flags,64);
+      const response=await(await signed(JSON.stringify({...base,type:3,guild_id:'20',data:{custom_id:'tibo:channel:posts',values:['30']},...fields}))).json();assert.equal(response.type,4);assert.equal(response.data.flags,64);
     }
     assert.equal(await setupDb.prepare("SELECT * FROM guild_settings WHERE guild_id='20'").first(),null);
   });
   await check('서명된 채널 메뉴 선택은 지연 응답 후 실제 설정과 비공개 확인을 저장한다',async()=>{
-    const response=await(await signed(JSON.stringify({...base,type:3,id:'9200',guild_id:'20',member:{permissions:'32',user:{id:'90'}},data:{custom_id:'tibo:notify-channel',values:['30']}}))).json();assert.equal(response.type,5);assert.equal(response.data.flags,64);
+    const response=await(await signed(JSON.stringify({...base,type:3,id:'9200',guild_id:'20',member:{permissions:'32',user:{id:'90'}},data:{custom_id:'tibo:channel:posts',values:['30']}}))).json();assert.equal(response.type,5);assert.equal(response.data.flags,64);
     await waitFor(()=>calls.some(c=>c.kind==='discord'&&c.body.content?.includes('이제 <#30>')));
     assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
     const notice=calls.find(c=>c.kind==='discord'&&c.path==='/api/v10/channels/30/messages');assert.ok(notice);assert.match(notice.body.embeds[0].description,/이제부터 이 채널에서/);assert.equal(notice.body.nonce,'c9200');assert.equal(notice.body.enforce_nonce,true);assert.deepEqual(notice.body.allowed_mentions,{parse:[]});
   });
+  await check('이전 공개 메뉴는 설정을 바꾸지 않고 새 종류별 메뉴를 보여 준다',async()=>{
+    const response=await(await signed(JSON.stringify({...base,type:3,guild_id:'20',data:{custom_id:'tibo:notify-channel',values:['30']}}))).json();
+    assert.equal(response.type,4);assert.equal(response.data.components.length,4);assert.match(response.data.content,/리셋 확인/);
+  });
+  await check('리셋 전용 채널 설정과 끄기 버튼은 게시글 채널을 보존한다',async()=>{
+    const member={permissions:'32',user:{id:'90'}};
+    const select=await(await signed(JSON.stringify({...base,type:3,id:'9300',guild_id:'20',member,data:{custom_id:'tibo:channel:resets',values:['30']}}))).json();assert.equal(select.type,5);
+    await waitFor(async()=>(await setupDb.prepare("SELECT reset_channel_id FROM guild_settings WHERE guild_id='20'").first()).reset_channel_id==='30');
+    const off=await(await signed(JSON.stringify({...base,type:3,id:'9301',guild_id:'20',member,data:{custom_id:'tibo:off:resets'}}))).json();assert.equal(off.type,5);
+    await waitFor(async()=>(await setupDb.prepare("SELECT reset_channel_id FROM guild_settings WHERE guild_id='20'").first()).reset_channel_id===null);
+    assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
+  });
+  await check('채널과 끄기를 동시에 지정하거나 잘못된 종류를 보내면 변경하지 않는다',async()=>{
+    for(const options of [[{name:'채널',value:'30'},{name:'끄기',value:true}],[{name:'종류',value:'invalid'},{name:'끄기',value:true}]]){
+      const response=await(await signed(JSON.stringify({...base,id:'9400',guild_id:'20',member:{permissions:'32',user:{id:'90'}},data:{name:'채널',options}}))).json();assert.equal(response.type,4);
+    }
+    assert.equal((await setupDb.prepare("SELECT channel_id FROM guild_settings WHERE guild_id='20'").first()).channel_id,'30');
+  });
   await check('상태 명령은 현재 서버 채널과 확인 시각만 단일 비공개 임베드로 제공한다',async()=>{
     const response=await(await signed(JSON.stringify({...base,guild_id:'20',data:{name:'상태'}}))).json();
     assert.equal(response.type,4);assert.equal(response.data.flags,64);assert.equal(response.data.embeds.length,1);assert.deepEqual(response.data.allowed_mentions,{parse:[]});
-    const fields=response.data.embeds.flatMap(embed=>embed.fields);assert.equal(fields.find(f=>f.name==='알림 채널').value,'<#30>');assert.equal(fields.length,2);assert.equal(fields.find(f=>f.name==='최근 확인').value,'아직 확인 전');assert.match(response.data.embeds[0].title,/🟡/);
+    const fields=response.data.embeds.flatMap(embed=>embed.fields);assert.equal(fields.find(f=>f.name==='Tibo 게시글').value,'<#30>');assert.equal(fields.length,3);assert.equal(fields.find(f=>f.name==='최근 확인').value,'아직 확인 전');assert.match(response.data.embeds[0].title,/🟡/);
   });
 }finally{await mf.dispose();}
 
