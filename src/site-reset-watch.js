@@ -19,8 +19,11 @@ async function dispatchSiteResets(env) {
 }
 async function reconcileSiteResets(env,events,now,token) {
   const current=new Map(events.map(event=>[event.key,event]));
+  // 게시글 ID 인덱스로 먼저 찾는다. ID에 문자열을 붙여 비교하면 매분 전체 게시글을 반복 스캔한다.
+  // URL 일치 조건은 기존 데이터의 잘못된 주소가 다른 게시글에 연결되는 것을 막는다.
   const {results}=await env.DB.prepare(`SELECT e.*,p.body,p.published_at,p.context_json,p.analysis_json FROM site_reset_events e
-    LEFT JOIN watched_posts p ON e.original_url='https://x.com/thsottiaux/status/'||p.id`).all();
+    LEFT JOIN watched_posts p ON p.id=substr(e.original_url,length('https://x.com/thsottiaux/status/')+1)
+      AND e.original_url='https://x.com/thsottiaux/status/'||p.id`).all();
   const guard='EXISTS(SELECT 1 FROM site_reset_state WHERE id=1 AND claim_token=?)';
   const statements=[];
   for(const row of results){
