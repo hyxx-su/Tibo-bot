@@ -3,10 +3,12 @@ import {seedLegacyGuild,recordChannelDeletion} from './guild-settings.js';
 
 export async function queueDeliveries(env,post,content,kind) {
   await seedLegacyGuild(env);
+  const channel=kind==='site-reset'?'reset_channel_id':'channel_id';
+  const activated=kind==='site-reset'?'reset_activated_at':'activated_at';
   // 각 서버의 목적지를 저장하므로 다른 서버의 실패·재시도가 성공한 서버를 재발송하지 않는다.
   await env.DB.prepare(`INSERT OR IGNORE INTO post_deliveries (post_id,guild_id,kind,channel_id,content,message_id)
-    SELECT ?,guild_id,?,channel_id,?,CASE WHEN guild_id=? THEN ? ELSE NULL END FROM guild_settings
-    WHERE active=1 AND channel_id IS NOT NULL AND activated_at<=?`)
+    SELECT ?,guild_id,?,${channel},?,CASE WHEN guild_id=? THEN ? ELSE NULL END FROM guild_settings
+    WHERE active=1 AND ${channel} IS NOT NULL AND ${activated}<=?`)
     .bind(post.id,kind,content,env.DISCORD_TEST_GUILD_ID??'',post.message_id,post.discovered_at).run();
 }
 
@@ -32,8 +34,11 @@ export async function processDeliveryJob(message,env) {
         message.ack();return true;
       }
     }
-    const settings=await env.DB.prepare('SELECT active,channel_id FROM guild_settings WHERE guild_id=?').bind(row.guild_id).first();
-    if((row.kind!=='site-correction'&&(!settings?.active||settings.channel_id!==row.channel_id))||(row.kind==='site-correction'&&!row.message_id)){
+    const settings=await env.DB.prepare('SELECT active,channel_id,reset_channel_id,activated_at,reset_activated_at FROM guild_settings WHERE guild_id=?').bind(row.guild_id).first();
+    const destination=row.kind==='site-reset'?settings?.reset_channel_id:settings?.channel_id;
+    const activated=row.kind==='site-reset'?settings?.reset_activated_at:settings?.activated_at;
+    const source=row.kind==='site-correction'?null:row.kind==='site-reset'?await env.DB.prepare('SELECT discovered_at FROM site_reset_events WHERE event_key=?').bind(row.post_id).first():await env.DB.prepare('SELECT discovered_at FROM watched_posts WHERE id=?').bind(row.post_id).first();
+    if((row.kind!=='site-correction'&&(!settings?.active||destination!==row.channel_id||(source&&source.discovered_at<activated)))||(row.kind==='site-correction'&&!row.message_id)){
       await env.DB.prepare("UPDATE post_deliveries SET phase='cancelled',lease_until=0,claim_token=NULL WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(row.post_id,row.guild_id,row.kind,token).run();
     }else{
       const messageId=row.kind==='link'&&row.message_id?row.message_id:await sendNotification(env,row.post_id,row.content,row.kind,row.message_id,row.channel_id);

@@ -13,7 +13,7 @@ if(!identity.ok){console.error('봇 인증 실패: HTTP '+identity.status);proce
 if((await identity.json()).id!==applicationId){console.error('지정한 앱의 토큰이 아닙니다. 명령을 등록하지 않았습니다.');process.exit(1);}
 // 운영 명령을 갱신한 뒤 종료한 이름만 지정 범위에서 제거한다.
 const commands=[
-  {name:'채널',description:'Tibo 메시지를 받을 채널을 선택합니다.',type:1,default_member_permissions:'32',contexts:[0],integration_types:[0],options:[{type:7,name:'채널',description:'알림을 받을 텍스트 채널',required:false,channel_types:[0,5]}]},
+  {name:'채널',description:'게시글·리셋 확인 알림의 채널을 각각 설정하거나 끕니다.',type:1,default_member_permissions:'32',contexts:[0],integration_types:[0],options:[{type:3,name:'종류',description:'설정할 알림 종류 (생략하면 둘 다)',required:false,choices:[{name:'Tibo 게시글',value:'posts'},{name:'리셋 확인',value:'resets'},{name:'둘 다',value:'both'}]},{type:7,name:'채널',description:'알림을 받을 텍스트 채널',required:false,channel_types:[0,5]},{type:5,name:'끄기',description:'선택한 종류의 알림 끄기',required:false}]},
   {name:'상태',description:'자동 새 글 알림의 최근 수집 시각과 처리 상태를 확인합니다.',type:1},
 ];
 const commandsUrl=`https://discord.com/api/v10/applications/${applicationId}${values.global?'':`/guilds/${guildId}`}/commands`;

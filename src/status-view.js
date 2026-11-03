@@ -2,13 +2,16 @@ import {formatKoreanTime} from './reset-time.js';
 
 const colors={healthy:0x57F287,warning:0xFEE75C,error:0xED4245};
 
-export function statusMessage({state,hasFailures,gateway,channelId,now=Date.now()}) {
+export function statusMessage({state,hasFailures,gateway,channelId,resetChannelId,setupComplete=false,now=Date.now()}) {
   const hasSuccess=Number.isFinite(state?.last_success)&&state.last_success>0;
   // 내부 처리 정보는 숨겨도 지연·실패를 정상 상태로 안내하지 않도록 판정에 사용한다.
   const stale=hasSuccess&&(now-state.last_success>180000||state.last_success>now+60000);
-  const configured=typeof channelId==='string'&&/^\d{1,20}$/.test(channelId);
+  const valid=value=>typeof value==='string'&&/^\d{1,20}$/.test(value);
+  const configured=valid(channelId)||valid(resetChannelId);
   let severity='healthy',title='✅ 알림 정상 작동 중',description;
-  if(state?.last_error){
+  if(!configured&&setupComplete){
+    severity='warning';title='⏸️ 알림이 꺼져 있어요';description='`/채널`에서 원하는 종류의 채널을 선택하면 다시 받을 수 있어요.';
+  }else if(state?.last_error){
     severity='error';title='🔴 새 글을 확인하지 못했어요';description='잠시 후 다시 확인해 주세요. 문제가 계속되면 봇 관리자에게 문의해 주세요.';
   }else if(hasFailures){
     severity='error';title='🔴 일부 알림을 보내지 못했어요';description='알림 채널의 봇 권한을 확인해 주세요. 문제가 계속되면 봇 관리자에게 문의해 주세요.';
@@ -25,7 +28,8 @@ export function statusMessage({state,hasFailures,gateway,channelId,now=Date.now(
     embeds:[{
       title,color:colors[severity],...(description?{description}:{}),
       fields:[
-        {name:'알림 채널',value:configured?`<#${channelId}>`:'미설정',inline:false},
+        {name:'Tibo 게시글',value:valid(channelId)?`<#${channelId}>`:'꺼짐',inline:true},
+        {name:'리셋 확인',value:valid(resetChannelId)?`<#${resetChannelId}>`:'꺼짐',inline:true},
         {name:'최근 확인',value:hasSuccess?`${formatKoreanTime(state.last_success)}\n<t:${Math.floor(state.last_success/1000)}:R>`:'아직 확인 전',inline:false},
       ],
       footer:{text:'새 게시글을 1분마다 확인해요.'},

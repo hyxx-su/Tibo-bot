@@ -1,4 +1,4 @@
-import {validId,canManage,channelMenu,configureGuild,seedLegacyGuild} from './guild-settings.js';
+import {validId,canManage,channelMenu,channelSettingsContent,notificationTypes,configureGuild,seedLegacyGuild} from './guild-settings.js';
 import {readLimitedText,discordPlainText} from './input.js';
 import {gatewayStatus} from './gateway.js';
 import {collectLatestPost} from './collector.js';
@@ -31,15 +31,27 @@ export async function handleDiscord(request, env) {
   if(interaction.type===1)return Response.json({type:1});
   if(interaction.application_id!==env.DISCORD_APPLICATION_ID)return privateReply('이 앱의 명령이 아닙니다.');
   const setup=interaction.type===2&&interaction.data?.name==='채널';
-  const selection=interaction.type===3&&interaction.data?.custom_id==='tibo:notify-channel';
-  if(setup||selection){
+  const customId=interaction.type===3?interaction.data?.custom_id:null;
+  const selection=typeof customId==='string'&&/^tibo:(channel|off):(posts|resets)$/.test(customId);
+  const legacy=customId==='tibo:notify-channel';
+  if(setup||selection||legacy){
     if(!validId(interaction.guild_id)||!interaction.member)return privateReply('서버에서 실행해 주세요.');
     if(!canManage(interaction.member.permissions))return privateReply('알림 설정은 서버 관리 권한이 있는 사용자만 변경할 수 있습니다.');
-    const channelId=selection?interaction.data.values?.[0]:interaction.data.options?.find(option=>option.name==='채널')?.value;
-    if(setup&&!channelId)return Response.json({type:4,data:{content:'Tibo 메시지를 받을 채널을 선택해 주세요.',components:channelMenu(),flags:64,allowed_mentions:{parse:[]}}});
-    if(!validId(channelId)||!validId(interaction.id)||!validId(interaction.member.user?.id)||typeof interaction.token!=='string'||!interaction.token||interaction.token.length>2048)return privateReply('올바른 채널을 선택해 주세요.');
+    const options=Array.isArray(interaction.data.options)?interaction.data.options:[];
+    const notificationType=selection?customId.split(':')[2]:options.find(option=>option.name==='종류')?.value??'both';
+    const disable=selection?customId.startsWith('tibo:off:'):options.find(option=>option.name==='끄기')?.value===true;
+    const channelId=selection?interaction.data.values?.[0]:options.find(option=>option.name==='채널')?.value;
+    if(!notificationTypes.includes(notificationType))return privateReply('올바른 알림 종류를 선택해 주세요.');
+    if(legacy||(setup&&!channelId&&!disable)){
+      try{
+        await seedLegacyGuild(env);
+        const settings=await env.DB.prepare('SELECT channel_id,reset_channel_id FROM guild_settings WHERE guild_id=? AND active=1').bind(interaction.guild_id).first();
+        return Response.json({type:4,data:{content:channelSettingsContent(settings),components:channelMenu(),flags:64,allowed_mentions:{parse:[]}}});
+      }catch{return privateReply('설정을 읽지 못했습니다. 잠시 후 다시 시도해 주세요.');}
+    }
+    if((!disable&&!validId(channelId))||(disable&&channelId)||!validId(interaction.id)||!validId(interaction.member.user?.id)||typeof interaction.token!=='string'||!interaction.token||interaction.token.length>2048)return privateReply('채널 선택과 알림 끄기 중 하나만 지정해 주세요.');
     try{
-      await env.PROBE_JOBS.send({kind:'discord-configure',guildId:interaction.guild_id,channelId,userId:interaction.member.user.id,interactionId:interaction.id,interactionToken:interaction.token,expiresAt:Date.now()+14*60*1000});
+      await env.PROBE_JOBS.send({kind:'discord-configure',guildId:interaction.guild_id,channelId:disable?null:channelId,notificationType,disable,userId:interaction.member.user.id,interactionId:interaction.id,interactionToken:interaction.token,expiresAt:Date.now()+14*60*1000});
       return Response.json({type:5,data:{flags:64}});
     }catch{return privateReply('설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');}
   }
@@ -49,10 +61,10 @@ export async function handleDiscord(request, env) {
     if(env.WATCH_ENABLED!=='true')return privateReply('자동 알림이 꺼져 있습니다.');
     try{
       await seedLegacyGuild(env);
-      const settings=await env.DB.prepare('SELECT channel_id FROM guild_settings WHERE guild_id=? AND active=1').bind(interaction.guild_id).first();
+      const settings=await env.DB.prepare('SELECT channel_id,reset_channel_id,setup_complete FROM guild_settings WHERE guild_id=? AND active=1').bind(interaction.guild_id).first();
       const {state,hasFailures}=await readWatchStatus(env.DB,interaction.guild_id);
       const gateway=await gatewayStatus(env);
-      return Response.json({type:4,data:statusMessage({state,hasFailures,gateway,channelId:settings?.channel_id})});
+      return Response.json({type:4,data:statusMessage({state,hasFailures,gateway,channelId:settings?.channel_id,resetChannelId:settings?.reset_channel_id,setupComplete:settings?.setup_complete===1})});
     }catch{return privateReply('자동 알림 상태를 읽지 못했습니다. 배포 설정을 확인해 주세요.');}
   }
 
