@@ -76,7 +76,7 @@ export async function readWatchStatus(db,guildId) {
 
 export async function resolveQuoteContext(db,post) {
   const context=[...(post.context??[])];
-  const quote=context.find(source=>source.relation==='quote');
+  const quote=context.find(source=>source.relation==='quote'&&(!source.author||source.author==='thsottiaux'));
   if(!quote)return post;
   // 인용한 글의 ID로 한정하여 저장된 같은 작성자의 예고 문맥만 보충한다.
   const stored=await db.prepare('SELECT context_json,analysis_json FROM watched_posts WHERE id=?').bind(quote.id).first();
@@ -87,7 +87,7 @@ export async function resolveQuoteContext(db,post) {
     const parents=JSON.parse(stored.context_json??'[]');
     for(const source of parents){
       if(typeof source.id==='string'&&/^\d{1,20}$/.test(source.id)&&BigInt(source.id)<BigInt(quote.id)&&typeof source.text==='string'&&!context.some(other=>other.id===source.id)){
-        context.push({id:source.id,text:source.text.slice(0,16000),date:source.date,relation:'quoted-context'});
+        context.push({id:source.id,author:source.author??'thsottiaux',text:source.text.slice(0,16000),date:source.date,relation:'quoted-context'});
         if(context.length>=8)break;
       }
     }
