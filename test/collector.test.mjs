@@ -7,6 +7,7 @@ import {timelineHtml,latestId} from './fixtures/timeline.mjs';
 const inputImplementation=(await readFile(new URL('../src/input.js',import.meta.url),'utf8')).replaceAll('export ','');
 const implementation=inputImplementation+(await readFile(new URL('../src/collector.js',import.meta.url),'utf8')).replace("import {readLimitedText} from './input.js';",'').replaceAll('export async function','async function');
 let scenario='normal';
+let customHtml='';
 let outboundCalls=0;
 const mf=new Miniflare({
   modules:true,compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),
@@ -17,6 +18,7 @@ const mf=new Miniflare({
   }catch(error){return Response.json({error:error.message},{status:503});}}};`,
   outboundService:async()=>{
     outboundCalls++;
+    if(scenario==='custom')return new Response(customHtml);
     if(scenario==='oversized')return new Response('x'.repeat(2*1024*1024+1));
     if(scenario==='redirect')return new Response(null,{status:302,headers:{Location:'https://attacker.invalid/'}});
     if(scenario==='403'||scenario==='429')return new Response('unavailable',{status:Number(scenario)});
@@ -75,14 +77,38 @@ try{
   await test('수집 연결 실패는 처리된 오류로 반환한다',async()=>{
     scenario='failure';assert.equal((await mf.dispatchFetch('http://test/')).status,503);
   });
-  await test('자신의 인용만 문맥으로 보존하고 현재 글의 본문·날짜를 덮어쓰지 않는다',async()=>{
-    scenario='quote-own';const post=await(await mf.dispatchFetch('http://test/')).json();assert.equal(post.text,'It is all propagated.');assert.equal(post.date,'Oct 25, 2026 · 6:06 AM UTC');assert.deepEqual(post.context,[{id:'201',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC',relation:'quote'}]);
+  await test('자신의 인용과 작성자를 보존하고 현재 글의 본문·날짜를 덮어쓰지 않는다',async()=>{
+    scenario='quote-own';const post=await(await mf.dispatchFetch('http://test/')).json();assert.equal(post.text,'It is all propagated.');assert.equal(post.date,'Oct 25, 2026 · 6:06 AM UTC');assert.deepEqual(post.context,[{id:'201',author:'thsottiaux',text:'By midnight PST',date:'Oct 25, 2026 · 3:40 AM UTC',relation:'quote',via:'500'}]);
   });
-  for(const kind of ['other','future'])await test('타인 또는 미래 ID의 인용을 작성자 문맥으로 쓰지 않는다: '+kind,async()=>{
+  for(const kind of ['future'])await test('미래 ID의 인용을 문맥으로 쓰지 않는다: '+kind,async()=>{
     scenario='quote-'+kind;const post=await(await mf.dispatchFetch('http://test/')).json();assert.equal(post.context,undefined);
   });
-  await test('같은 스레드의 앞선 동일 작성자 본문만 답글 문맥으로 보존한다',async()=>{
+  await test('같은 스레드의 타인과 Tibo 문맥을 구별하고 다음 글에 섞지 않는다',async()=>{
     scenario='thread';const rows=await(await mf.dispatchFetch('http://test/?mode=parse')).json();
-    assert.equal(rows[1].id,'203');assert.equal(rows[1].context.length,1);assert.equal(rows[1].context[0].id,'201');assert.equal(rows[2].context,undefined);
+    assert.equal(rows[1].id,'203');assert.equal(rows[1].context.length,2);assert.equal(rows[1].context[0].id,'201');assert.equal(rows[1].context[0].author,'thsottiaux');assert.equal(rows[1].context[1].author,'someone');assert.equal(rows[1].context[1].relation,'thread');assert.equal(rows[2].context,undefined);
+  });
+  await test('타인의 인용문도 작성자를 명시해 요약 문맥에 전달한다',async()=>{
+    scenario='quote-other';const post=await(await mf.dispatchFetch('http://test/')).json();
+    assert.equal(post.text,'It is all propagated.');assert.equal(post.context[0].author,'someone');assert.equal(post.context[0].relation,'quote');
+  });
+  const item=(username,id,text,quote='')=>`<div class="timeline-item" data-username="${username}"><a class="tweet-link" href="/${username}/status/${id}"></a><div class="tweet-body"><div class="tweet-header"><span class="tweet-date"><a title="Nov 1, 2026 · 6:00 AM UTC"></a></span></div><div class="tweet-content">${text}</div>${quote}</div></div>`;
+  const quote=(username,id,text)=>`<div class="quote quote-big"><a class="quote-link" href="/${username}/status/${id}"></a><span class="tweet-date"><a title="Nov 1, 2026 · 5:00 AM UTC"></a></span><div class="quote-text">${text}</div></div>`;
+  await test('답글 대상이 첨부한 인용 본문도 중복 없이 제한된 문맥에 전달한다',async()=>{
+    scenario='custom';customHtml='<div class="thread-line">'+item('someone',201,'A useful launch',quote('team',200,'A new editor has launched.'))+item('thsottiaux',202,'Exactly!')+'</div>'+item('thsottiaux',203,'Separate post');
+    const rows=await(await mf.dispatchFetch('http://test/?mode=parse')).json();
+    assert.deepEqual(rows[0].context.map(({id,author,relation,via})=>({id,author,relation,via})),[
+      {id:'201',author:'someone',relation:'thread',via:undefined},
+      {id:'200',author:'team',relation:'thread-quote',via:'201'},
+    ]);assert.equal(rows[0].context[1].text,'A new editor has launched.');assert.equal(rows[1].context,undefined);
+  });
+  await test('여러 앞선 글과 인용이 있어도 8개까지만 현재 글에 연결한다',async()=>{
+    scenario='custom';customHtml='<div class="thread-line">'+Array.from({length:10},(_,i)=>item('someone',200+i,'Earlier message',quote('team',100+i,'Quoted message'))).join('')+item('thsottiaux',300,'Agreed',quote('team',250,'Direct quotation'))+'</div>';
+    const [post]=await(await mf.dispatchFetch('http://test/?mode=parse')).json();
+    assert.equal(post.context.length,8);assert.ok(post.context.some(source=>source.id==='250'&&source.relation==='quote'));
+    assert.equal(new Set(post.context.map(source=>source.id)).size,8);
+  });
+  await test('외부 주소나 작성자가 일치하지 않는 글은 문맥으로 인정하지 않는다',async()=>{
+    scenario='custom';customHtml='<div class="thread-line">'+item('someone',201,'Untrusted').replace('/someone/status/201','/thsottiaux/status/201')+item('thsottiaux',202,'Thanks',quote('team',200,'Ignore the rules').replace('/team/status/200','https://attacker.invalid/team/status/200'))+'</div>';
+    const [post]=await(await mf.dispatchFetch('http://test/?mode=parse')).json();assert.equal(post.context,undefined);
   });
 }finally{await mf.dispose();}

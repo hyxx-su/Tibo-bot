@@ -140,8 +140,8 @@ try{
   await test('진행 중인 인용 공지를 완료 메시지로 보내지 않는다',async()=>{
     posts=[{id:'115',text:'Still propagating.',quote:{id:'109',text:'By midnight PST'}},...posts];await poll();await waitFor(async()=>await settled('115'));await waitPoll();const sent=calls.find(c=>c.kind==='discord'&&c.body.nonce==='r115');assert.match(sent.body.content,/초기화 진행 중/);assert.equal(sent.body.embeds,undefined);assert.doesNotMatch(sent.body.content,/초기화 완료/);
   });
-  await test('다른 작성자의 인용 본문은 제외하되 새 글 자체는 Gemini로 분석한다',async()=>{
-    const before=calls.filter(c=>c.kind==='ai').length;posts=[{id:'116',text:'무관한 인용',quote:{id:'109',text:'By midnight PST',author:'someone'}},...posts];await poll();await waitFor(async()=>await settled('116'));await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai').length,before+1);assert.deepEqual(calls.filter(c=>c.kind==='ai').at(-1).context,[]);assert.equal(JSON.parse((await row('116')).analysis_json).status,'unrelated');
+  await test('다른 작성자의 인용은 요약 문맥으로 전달하되 저장된 Tibo 예고와 섞지 않는다',async()=>{
+    const before=calls.filter(c=>c.kind==='ai').length;posts=[{id:'116',text:'무관한 인용',quote:{id:'109',text:'By midnight PST',author:'someone'}},...posts];await poll();await waitFor(async()=>await settled('116'));await waitPoll();assert.equal(calls.filter(c=>c.kind==='ai').length,before+1);assert.equal(calls.filter(c=>c.kind==='ai').at(-1).context[0].author,'someone');assert.equal(calls.filter(c=>c.kind==='ai').at(-1).context.length,1);assert.equal(JSON.parse((await row('116')).analysis_json).status,'unrelated');
   });
   await test('관리자 단건 재분석은 기존 링크 메시지를 수정하며 반복 호출로 중복 발송하지 않는다',async()=>{
     posts=[{id:'117',text:'It is all propagated.',date:'Oct 25, 2026 · 6:06 AM UTC'},...posts];await poll();await waitFor(async()=>await settled('117'));await waitPoll();
