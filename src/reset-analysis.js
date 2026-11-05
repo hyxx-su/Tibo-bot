@@ -59,6 +59,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
 - validation_feedback가 있으면 이전 응답이 해당 검증을 통과하지 못했다는 의미다. 현재 원문에서 다시 판단하고 근거를 지어내서 형식을 맞추지 않는다.
 - title_evidence는 제목의 주요 사실을 뒷받침하는 입력 원문 구절 배열(최대 4개), summary_items는 요약과 근거를 묶은 배열이다. 각 항목의 text는 한국어 요약, evidence는 그 요약을 뒷받침하는 연속된 원문 구절 하나다. 여러 절이 필요하면 둘을 포함한 원문 전체 문장을 복사한다. 근거를 별도 항목으로 쪼개지 않는다. 각 구절은 현재 text나 제공된 context 한 글의 연속된 문자열을 그대로 복사한다. 빈 미디어 본문만 있으면 빈 문자열을 쓴다. 근거 구절의 부정·시제·조건을 제목과 요약에도 보존한다.
+- validation_feedback가 analysis_contradiction이면 완료 근거 구절뿐 아니라 현재 text 전체의 부정·진행·나머지 대상 미확인을 재검토한다. 일부만 완료되고 나머지가 미확인이면 mentioned이며 전체 완료가 아니다.
 - 출력 전에 현재 글의 대상·시제·부정·적용 범위와 분류/제목/요약이 일치하는지 점검한다. 출처의 문장을 복사한 것만으로 사실이 확인됐다고 여기지 않는다.
 - reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
 - type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
@@ -116,6 +117,8 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   if(result.status!=='unrelated'&&(!result.evidence.trim()||!sources.some(source=>source.text.includes(result.evidence))||!result.summary_ko.trim()))throw new Error('Reset evidence missing');
   if(['completed','in_progress'].includes(result.status)&&!post.text.includes(result.evidence))throw new Error('Current post evidence missing');
   if(result.status==='completed'&&/\b(?:not (?:yet )?(?:done|finished|completed?|applied|banked)|still (?:propagating|rolling out|being applied)|will (?:reset|bank|credit)|hasn't (?:finished|completed)|cancelled|canceled)\b/i.test(result.evidence))throw analysisError('analysis_contradiction','Completion evidence contradicts status');
+  // 완료 근거 일부만 발췌해도 같은 글의 나머지 대상 미확인을 지울 수 없다.
+  if(result.status==='completed'&&/\bno (?:update|confirmation) (?:yet )?(?:for|on|about) (?:the )?(?:other|remaining) (?:plans|accounts|users)\b/i.test(post.text))throw analysisError('analysis_contradiction','Completion scope is not confirmed');
   // 시각은 AI가 만든 날짜가 아니라, 원문에 실제 존재하는 시간 표현에서만 계산한다.
   const expression=result.status==='scheduled'?result.time_expression.trim():'';
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
