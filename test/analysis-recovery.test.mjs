@@ -36,6 +36,13 @@ try{
     globalThis.fetch=async()=>respond({...result,status:'completed'});
     await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_contradiction');
   });
+  await test('완료 구절을 발췌해도 같은 글의 나머지 대상 미확인을 검증한다',async()=>{
+    const partial={...post,text:'Usage limits have been reset for Pro only. No update for other plans.'};
+    globalThis.fetch=async()=>respond({...result,status:'completed',type_evidence:'Usage limits',evidence:'Usage limits have been reset for Pro only.',title_evidence:[partial.text],bullet_evidence:[partial.text]});
+    await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},partial),e=>e.code==='analysis_contradiction');
+    globalThis.fetch=async()=>respond({...result,status:'mentioned',type_evidence:'Usage limits',evidence:partial.text,title_evidence:[partial.text],bullet_evidence:[partial.text]});
+    assert.equal((await analyzeReset({GEMINI_API_KEY:'fixture'},partial)).status,'mentioned');
+  });
   await test('검증 실패 재검토에는 허용한 내부 코드만 전달한다',async()=>{
     const feedback=[];
     globalThis.fetch=async(url,options)=>{
