@@ -4,8 +4,8 @@ import {publishedTimestamp,parseResetTime,formatKoreanTime} from './reset-time.j
 const resetTypes=['regular','banked','unknown'];
 const statuses=['scheduled','in_progress','completed','mentioned','unrelated'];
 
-export async function analyzeReset(env,post) {
-  if(!env.GEMINI_API_KEY)throw new Error('Gemini secret missing');
+async function requestAnalysis(env,post,reviewCode) {
+  if(!env.GEMINI_API_KEY)throw analysisError('analysis_configuration','Gemini secret missing',{permanent:true});
   const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',{
     method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},signal:AbortSignal.timeout(45000),
     body:JSON.stringify({
@@ -55,6 +55,9 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 
 출력 규칙
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
+- validation_feedback가 있으면 이전 응답이 해당 검증을 통과하지 못했다는 의미다. 현재 원문에서 다시 판단하고 근거를 지어내서 형식을 맞추지 않는다.
+- title_evidence는 제목의 주요 사실을 뒷받침하는 입력 원문 구절 배열(최대 4개), bullet_evidence는 bullets와 같은 순서·개수의 원문 구절 배열이다. 각 구절은 현재 text나 제공된 context 한 글의 연속된 문자열을 그대로 복사한다. 빈 미디어 본문만 있으면 빈 문자열을 쓴다. 근거 구절의 부정·시제·조건을 제목과 요약에도 보존한다.
+- 출력 전에 현재 글의 대상·시제·부정·적용 범위와 분류/제목/요약이 일치하는지 점검한다. 출처의 문장을 복사한 것만으로 사실이 확인됐다고 여기지 않는다.
 - reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
 - type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
 - title_ko: 초기화 관련 여부와 관계없이 현재 게시글의 핵심 내용을 한국어 60자 이내로 전달한다. 발표·업데이트는 구체적인 기사 제목으로, 짧은 답글·농담·감탄은 말의 의미를 자연스럽게 옮긴 짧은 제목으로 쓴다. 단순 상태 라벨(“초기화 관련 언급”, “저장형 리셋 지급 진행 중”)로 글 전체를 대신하지 않는다. 제품·기능 발표와 사용자 수 달성, 초기화권 지급 등 여러 주요 소식이 함께 있으면 중요한 소식을 함께 담는다. 핵심 고유명사와 수치는 원문 그대로 보존하고 사소한 인사말은 제외한다.
@@ -70,14 +73,22 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 - evidence: 관련 상태라면 현재 글 또는 context 한 글에 실제 존재하는 연속된 구절을 그대로 복사한다. completed/in_progress는 반드시 현재 text의 구절을 사용한다. 부정·일부·진행 중이라는 제한을 잘라 반대 의미의 근거로 제시하지 않는다. unrelated는 빈 문자열이다.
 - time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
-      contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[]})}]}],
-      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},bullets:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['status','reset_type','type_evidence','title_ko','bullets','evidence','time_expression']}},
+      contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[],validation_feedback:reviewCode??null})}]}],
+      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{title_evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},bullet_evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},bullets:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['title_evidence','bullet_evidence','status','reset_type','type_evidence','title_ko','bullets','evidence','time_expression']}},
     }),
   });
-  if(!response.ok){await response.body?.cancel();throw new Error('Reset analysis HTTP '+response.status);}
+  if(!response.ok){
+    const retryAfter=parseRetryAfter(response.headers.get('retry-after'));
+    await response.body?.cancel();
+    throw analysisError('analysis_http_'+response.status,'Reset analysis HTTP '+response.status,{retryAfter,permanent:response.status>=400&&response.status<500&&![408,429].includes(response.status)});
+  }
   const data=JSON.parse(await readLimitedText(response,65536));
+  const finish=data.candidates?.[0]?.finishReason;
+  if(finish&&finish!=='STOP')throw analysisError(finish==='MAX_TOKENS'?'analysis_truncated':'analysis_blocked','Analysis response incomplete',{permanent:finish!=='MAX_TOKENS'});
   const text=(data.candidates?.[0]?.content?.parts??[]).filter(p=>!p.thought).map(p=>p.text??'').join('');
   const result=JSON.parse(text);
+  if(!result||typeof result!=='object'||Array.isArray(result))throw new Error('Invalid reset analysis');
+  validateSummaryEvidence(post,result);
   if(result.bullets!==undefined){
     result.bullets=validatedBullets(result.bullets);
     // 기존 분석 조회·평가와의 호환용 한 문장은 첫 핵심 항목에서 파생한다.
@@ -94,12 +105,46 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   if(result.status==='unrelated'&&resetType!=='unknown')throw new Error('Unrelated reset type');
   if(result.status!=='unrelated'&&(!result.evidence.trim()||!sources.some(source=>source.text.includes(result.evidence))||!result.summary_ko.trim()))throw new Error('Reset evidence missing');
   if(['completed','in_progress'].includes(result.status)&&!post.text.includes(result.evidence))throw new Error('Current post evidence missing');
+  if(result.status==='completed'&&/\b(?:not (?:yet )?(?:done|finished|completed?|applied|banked)|still (?:propagating|rolling out|being applied)|will (?:reset|bank|credit)|hasn't (?:finished|completed)|cancelled|canceled)\b/i.test(result.evidence))throw analysisError('analysis_contradiction','Completion evidence contradicts status');
   // 시각은 AI가 만든 날짜가 아니라, 원문에 실제 존재하는 시간 표현에서만 계산한다.
   const expression=result.status==='scheduled'?result.time_expression.trim():'';
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
   const time=timeSource&&typeof timeSource.date==='string'?parseResetTime(expression,publishedTimestamp(timeSource)):null;
   if(time&&/\b(by|before)\b|까지/i.test(expression))time.relation='deadline';
   return {...result,title_ko:result.title_ko?.trim().slice(0,60)??'',reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
+}
+
+const validationCodes=new Map([
+  ['Invalid reset analysis','analysis_schema'],['Invalid post title','analysis_title'],
+  ['Invalid summary bullets','analysis_summary'],['Invalid reset type','analysis_type'],
+  ['Reset type evidence missing','analysis_type_evidence'],['Unrelated reset type','analysis_type'],
+  ['Reset evidence missing','analysis_evidence'],['Current post evidence missing','analysis_current_evidence'],
+]);
+function analysisError(code,message,fields={}) {return Object.assign(new Error(message),{code,...fields});}
+export function parseRetryAfter(value,now=Date.now()) {
+  if(!value)return 0;
+  const seconds=/^\d+(?:\.\d+)?$/.test(value)?Number(value):(Date.parse(value)-now)/1000;
+  return Number.isFinite(seconds)?Math.min(86400,Math.max(0,Math.ceil(seconds))):0;
+}
+export async function analyzeReset(env,post,options={}) {
+  const started=Date.now();
+  // 재검토 지시는 내부 오류 코드만 사용하며 외부 오류 본문·모델 출력은 프롬프트에 재주입하지 않는다.
+  const reviewCode=/^analysis_(?:schema|title|summary|type|type_evidence|evidence|current_evidence|summary_evidence|contradiction|json|truncated)$/.test(options.reviewCode??'')?options.reviewCode:undefined;
+  try{
+    const result=await requestAnalysis(env,post,reviewCode);
+    return {...result,metrics:{analysis_ms:Date.now()-started,review:Boolean(reviewCode)}};
+  }catch(error){
+    const code=error.code??validationCodes.get(error.message)??(error instanceof SyntaxError?'analysis_json':['TimeoutError','AbortError'].includes(error.name)?'analysis_timeout':'analysis_network');
+    throw analysisError(code,validationCodes.has(error.message)||/^Reset analysis HTTP \d{3}$/.test(error.message)?error.message:'Reset analysis failed',{permanent:error.permanent===true,retryAfter:error.retryAfter??0,durationMs:Date.now()-started});
+  }
+}
+function validateSummaryEvidence(post,result) {
+  // 이전 저장 분석 형식은 읽되, 새 스키마의 근거가 있으면 현재 입력과 대조한다.
+  const sources=[post,...(post.context??[])].map(source=>source.text).filter(text=>typeof text==='string');
+  for(const [key,count] of [['title_evidence',null],['bullet_evidence',result.bullets?.length]]){
+    const evidence=result[key];if(evidence===undefined)continue;
+    if(!Array.isArray(evidence)||evidence.length<1||evidence.length>4||(count!==null&&evidence.length!==count)||evidence.some(text=>typeof text!=='string'||(post.text.trim()&&!text.trim())||!sources.some(source=>source.includes(text))))throw analysisError('analysis_summary_evidence','Summary evidence missing');
+  }
 }
 
 function validatedBullets(value) {
