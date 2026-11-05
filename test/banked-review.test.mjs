@@ -60,4 +60,11 @@ try{
     assert.equal((await db.prepare("SELECT analysis_json FROM watched_posts WHERE id='202'").first()).analysis_json,changed);
     assert.deepEqual(await db.prepare("SELECT content,phase FROM post_deliveries WHERE post_id='202'").first(),{content:'keep',phase:'done'});
   });
+  await test('분석 장애 때 먼저 보낸 링크도 관리자 재검토 후 같은 메시지를 수정한다',async()=>{
+    await db.prepare("INSERT INTO watched_posts(id,body,published_at,phase,discovered_at,analysis_json) VALUES('203',?,?,'done',0,?)").bind(text,date,JSON.stringify(old)).run();
+    await db.prepare("INSERT INTO post_deliveries(post_id,guild_id,kind,channel_id,content,message_id,phase) VALUES('203','20','link','30','old','903','done')").run();
+    const before=sent.length;await review('203');await drain();
+    assert.equal(sent.length,before+1);assert.equal(sent.at(-1).method,'PATCH');assert.match(sent.at(-1).payload.content,/2\/3/);
+    assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM post_deliveries WHERE post_id='203'").first()).n,1);
+  });
 }finally{globalThis.fetch=original;await mf.dispose();}
