@@ -57,15 +57,31 @@ try{
     await Promise.all([send(),send()]);
     assert.deepEqual(calls.filter(c=>c.kind==='discord').map(c=>c.method),['POST','PATCH']);assert.equal((await delivery()).phase,'done');
   });
+  await test('네 번째 서버 장애 뒤에도 대기하다가 복구되면 기존 메시지만 수정한다',async()=>{
+    await reset();failure=503;await postJob('link');await send();
+    await db.prepare("UPDATE watched_posts SET attempts=3,next_attempt=0 WHERE id='100'").run();
+    jobs.length=0;await postJob('analyze');
+    assert.equal((await row()).phase,'analyze');assert.equal((await row()).attempts,4);
+    assert.equal(jobs.find(j=>j.body.kind==='watch-post').options.delaySeconds,900);
+    assert.equal((await delivery()).message_id,'9001');
+    failure=0;await db.prepare("UPDATE watched_posts SET next_attempt=0 WHERE id='100'").run();
+    await postJob('analyze');await send();
+    assert.equal((await row()).phase,'done');assert.equal((await delivery()).phase,'done');
+    assert.deepEqual(calls.filter(c=>c.kind==='discord').map(c=>c.method),['POST','PATCH']);
+  });
   await test('인증 오류는 반복 호출 없이 링크로 종료하고 제한 오류는 제공된 재시각을 따른다',async()=>{
     await reset();failure=403;await postJob('link');assert.equal((await row()).phase,'done');assert.equal(calls.filter(c=>c.kind==='analysis').length,1);
     assert.equal(JSON.parse((await row()).analysis_json).failure_code,'analysis_http_403');
     await reset();failure=429;await postJob('link');assert.equal(jobs.find(j=>j.body.kind==='watch-post').options.delaySeconds,900);
   });
-  await test('검증 실패는 한 번만 재검토하고 일시 장애 재시도는 최대 네 번으로 제한한다',()=>{
+  await test('검증 실패·서버 장애·요청 제한의 재시도 횟수를 구별한다',()=>{
     assert.equal(analysisRetryPolicy({attempts:0},{code:'analysis_evidence'}).terminal,false);
     assert.equal(analysisRetryPolicy({attempts:1},{code:'analysis_evidence'}).terminal,true);
     assert.deepEqual([0,1,2].map(attempts=>analysisRetryPolicy({attempts},{code:'analysis_http_503'}).delaySeconds),[15,60,180]);
-    assert.equal(analysisRetryPolicy({attempts:3},{code:'analysis_http_503'}).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:3},{code:'analysis_http_503'}).terminal,false);
+    assert.deepEqual([3,4].map(attempts=>analysisRetryPolicy({attempts},{code:'analysis_http_503'}).delaySeconds),[900,3600]);
+    assert.equal(analysisRetryPolicy({attempts:5},{code:'analysis_http_503'}).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:3},{code:'analysis_http_429'}).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:0},{code:'analysis_http_503',permanent:true}).terminal,true);
   });
 }finally{globalThis.fetch=original;await mf.dispose();}
