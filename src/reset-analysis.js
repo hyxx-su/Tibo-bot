@@ -134,8 +134,8 @@ export async function analyzeReset(env,post,options={}) {
     const result=await requestAnalysis(env,post,reviewCode);
     return {...result,metrics:{analysis_ms:Date.now()-started,review:Boolean(reviewCode)}};
   }catch(error){
-    const code=(typeof error.code==='string'&&/^analysis_[a-z0-9_]+$/.test(error.code)?error.code:null)??validationCodes.get(error.message)??(error instanceof SyntaxError?'analysis_json':['TimeoutError','AbortError'].includes(error.name)?'analysis_timeout':'analysis_network');
-    throw analysisError(code,validationCodes.has(error.message)||/^Reset analysis HTTP \d{3}$/.test(error.message)?error.message:'Reset analysis failed',{permanent:error.permanent===true,retryAfter:error.retryAfter??0,durationMs:Date.now()-started});
+    const code=error.code==='body_too_large'?'body_too_large':(typeof error.code==='string'&&/^analysis_[a-z0-9_]+$/.test(error.code)?error.code:null)??validationCodes.get(error.message)??(error instanceof SyntaxError?'analysis_json':['TimeoutError','AbortError'].includes(error.name)?'analysis_timeout':'analysis_network');
+    throw analysisError(code,validationCodes.has(error.message)||/^Reset analysis HTTP \d{3}$/.test(error.message)?error.message:'Reset analysis failed',{permanent:error.permanent===true||error.code==='body_too_large',retryAfter:error.retryAfter??0,durationMs:Date.now()-started});
   }
 }
 function validateSummaryEvidence(post,result) {
