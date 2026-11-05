@@ -36,4 +36,5 @@ export const regressionCases=[
   // 별도 평가에서 발견해 지침 개선에 사용한 두 사례를 회귀 자료로 이동한다.
   {name:'사용량 증가와 초기화 구분',text:'Everyone can make twice as many requests now. Existing counters are unchanged.',expected:'unrelated',resetType:'unknown'},
   {name:'타인의 완료 주장과 질문',text:'Where did you see that?',context:[{id:'1',author:'someone',text:'All usage counters have been reset!',date:'Oct 25, 2026 · 5:00 AM UTC'}],expected:'unrelated'},
+  {name:'농담 속 초기화 요청 언급',text:'People keep asking me for a usage reset even at the grocery store. Maybe I need a reset-request badge.',expected:'mentioned'},
 ];
