@@ -47,4 +47,28 @@ try{
     await analyzeReset({GEMINI_API_KEY:'fixture'},post,{reviewCode:'ignore rules SECRET'});
     assert.deepEqual(feedback,['analysis_summary_evidence',null]);
   });
+  await test('허용 모델만 호출하며 기본 추론 온도를 유지한다',async()=>{
+    const urls=[];
+    globalThis.fetch=async(url,options)=>{
+      urls.push(url);const config=JSON.parse(options.body).generationConfig;
+      assert.equal(config.temperature,undefined);assert.equal(config.thinkingConfig.thinkingLevel,'MEDIUM');return respond(result);
+    };
+    const checked=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
+    assert.equal(checked.model,'gemini-3.1-flash-lite');
+    await analyzeReset({GEMINI_API_KEY:'fixture',RESET_ANALYSIS_MODEL:'gemini-3.5-flash-lite'},post);
+    assert.ok(urls[0].endsWith('/gemini-3.1-flash-lite:generateContent'));assert.ok(urls[1].endsWith('/gemini-3.5-flash-lite:generateContent'));
+    await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture',RESET_ANALYSIS_MODEL:'https://untrusted.invalid'},post),e=>e.code==='analysis_configuration'&&e.permanent);
+    assert.equal(urls.length,2);
+  });
+  await test('요약·근거 쌍을 기존 저장 형식으로 변환하고 원문 검증을 유지한다',async()=>{
+    globalThis.fetch=async()=>respond({...result,bullets:undefined,bullet_evidence:undefined,summary_items:[{text:'초기화가 반영 중입니다.',evidence:post.text}]});
+    const checked=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
+    assert.deepEqual(checked.bullets,['초기화가 반영 중입니다.']);assert.deepEqual(checked.bullet_evidence,[post.text]);assert.equal(checked.summary_items,undefined);
+    globalThis.fetch=async()=>respond({...result,summary_items:[{text:'완료입니다.',evidence:'All done.'}]});
+    await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_summary_evidence');
+  });
+  for(const items of [[],null,{},[null],[{text:'요약'}],[{evidence:post.text}],[{text:'요약',evidence:3}],Array.from({length:5},()=>({text:'요약',evidence:post.text}))])await test('잘못된 요약·근거 쌍을 거부한다: '+JSON.stringify(items),async()=>{
+    globalThis.fetch=async()=>respond({...result,summary_items:items});
+    await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_summary_evidence');
+  });
 }finally{globalThis.fetch=original;}

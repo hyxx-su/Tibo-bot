@@ -10,9 +10,10 @@ try{
     let calls=0;
     globalThis.fetch=async(url,options)=>{
       calls++;const schema=JSON.parse(options.body).generationConfig.responseSchema;
-      assert.equal(schema.properties.bullets.type,'ARRAY');assert.equal(schema.properties.bullets.maxItems,4);assert.equal(schema.properties.bullets.minItems,1);
-      assert.ok(schema.required.includes('bullets'));assert.equal(schema.properties.summary_ko,undefined);
-      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(base)}]}}]});
+      assert.equal(schema.properties.summary_items.type,'ARRAY');assert.equal(schema.properties.summary_items.maxItems,4);assert.equal(schema.properties.summary_items.minItems,1);
+      assert.ok(schema.required.includes('summary_items'));assert.equal(schema.properties.summary_ko,undefined);
+      assert.deepEqual(schema.properties.summary_items.items.required,['text','evidence']);
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({...base,bullets:undefined,summary_items:base.bullets.map(text=>({text,evidence:post.text}))})}]}}]});
     };
     const result=await analyzeReset({GEMINI_API_KEY:'fixture'},post);
     assert.equal(calls,1);assert.deepEqual(result.bullets,base.bullets);assert.equal(result.summary_ko,base.bullets[0]);

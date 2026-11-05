@@ -7,12 +7,16 @@ import {holdoutCases} from '../test/fixtures/reset-analysis-holdout.mjs';
 
 const args=process.argv.slice(2),heldout=args.includes('--heldout');
 const cases=heldout?holdoutCases:regressionCases;
+const intervalArg=args.find(arg=>arg.startsWith('--interval-ms='));
+const intervalMs=Number(intervalArg?.split('=')[1]??7000);
+if(!Number.isFinite(intervalMs)||intervalMs<1000)throw new Error('호출 간격은 1000ms 이상이어야 합니다.');
 const names=args.filter(arg=>!arg.startsWith('--'));
 const selected=names.length?cases.filter(entry=>names.includes(entry.name)):cases;
 if(!selected.length)throw new Error('일치하는 검증 사례가 없습니다.');
 const report={dataset:heldout?'holdout-v1':'regression',planned:selected.length,attempted:0,resolved:0,passed:0,requestFailures:0,totalTokens:0,statusCorrect:0,typeTotal:0,typeCorrect:0,timeTotal:0,timeCorrect:0,tp:0,fp:0,fn:0,confusion:{},errors:{}};
 const durations=[];let consecutiveFailures=0;
 for(const entry of selected){
+  if(report.attempted)await new Promise(resolve=>setTimeout(resolve,intervalMs));
   report.attempted++;
   try{
     const result=await analyzeReset(process.env,{id:'2',date:entry.date??'Oct 25, 2026 · 6:00 AM UTC',text:entry.text,context:entry.context??[]});
