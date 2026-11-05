@@ -28,7 +28,8 @@ async function poll(){await db.prepare('UPDATE site_reset_state SET next_poll_at
 try{
   await test('70개 기록이 변하지 않으면 반복 수집당 쓰기는 상태 3회이며 과거 기록은 다시 쓰지 않는다',async()=>{
     await poll();const before=(await db.prepare('SELECT * FROM site_reset_events ORDER BY event_key').all()).results;
-    writes=0;for(let i=0;i<10;i++)await poll();
+    writes=0;reads=0;for(let i=0;i<10;i++)await poll();
+    assert.ok(reads<1100,`Unchanged snapshots read ${reads} rows in 10 polls`);
     assert.equal(writes,30);assert.deepEqual((await db.prepare('SELECT * FROM site_reset_events ORDER BY event_key').all()).results,before);assert.equal(jobs.length,0);
   });
   await test('늦게 도착한 원문 분석은 변경된 1개 기록만 갱신하여 승인한다',async()=>{
