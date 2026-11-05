@@ -62,6 +62,16 @@ node --env-file=/absolute/private/evaluation.env scripts/evaluate-reset-corpus.m
 
 기존 합성 프롬프트 평가 도구는 `scripts/evaluate-reset-analysis.mjs`다. 일반 회귀 테스트 `npm test`는 실제 Gemini API를 호출하지 않는다.
 
+합성 회귀 사례는 `test/fixtures/reset-analysis-cases.mjs`, 프롬프트 예시와 분리한 평가 사례는 `test/fixtures/reset-analysis-holdout.mjs`에 있다. 후자는 다음과 같이 실행한다.
+
+```sh
+node --env-file=/absolute/private/evaluation.env scripts/evaluate-reset-analysis.mjs --heldout
+```
+
+이 도구는 상태 혼동 행렬, 관련 여부의 precision/recall, 유형·시각 일치 개수, 정상 응답 지연 p50/p95, 오류 코드를 출력한다. 정확도 분모는 정상 응답이며 API·검증 실패를 포함한 전체 통과율도 함께 출력한다. 429·영구 오류·연속 실패 3회에서는 중단한다. 현재 도구는 사례당 한 번 호출하여 최초 응답 품질을 측정하며, 운영의 검증 실패 재검토는 별도 측정해야 한다.
+
+운영에서는 제목·각 요약 항목의 `title_evidence`·`bullet_evidence`를 입력 원문과 대조한다. 관련 상태의 evidence/type_evidence는 Tibo 본문·직접 연결된 Tibo 문맥에 한정하고, 완료·진행 근거는 현재 글에 있어야 한다. 완료 근거 자체의 명시적 부정·진행·예정 표현도 거부한다. 검증 실패에 한해 내부 오류 코드를 전달하여 한 번 재검토한다. 근거 문자열 일치는 의미 전체의 정확성 보장이 아니므로 실제 판별 성능은 계속 독립 자료로 확인해야 한다.
+
 ## 범위 한계
 
 무료 미러에서 얻을 수 있는 원문은 전체 X 이력이 아니다. 미러의 빈 페이지·누락 문맥·이미지 속 글은 평가 범위를 제한한다. 원문 분류와 수집 누락은 별개로 점검해야 한다. 이번 개선은 프롬프트·시간 해석·오프라인 평가 범위이며 수집 원본 공급원을 바꾸지 않는다. 모델 출력에는 변동성이 있으므로 유한한 사례의 통과가 미래 모든 글의 정확성을 보장하지 않는다.
