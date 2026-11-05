@@ -46,9 +46,11 @@ export async function advancePost(db,row,token,phase,fields={}) {
 export function analysisRetryPolicy(row,error) {
   const validation=/^analysis_(?:schema|title|summary|type|type_evidence|evidence|current_evidence|summary_evidence|contradiction|json|truncated)$/.test(error.code??'');
   const attempts=row.attempts+1;
-  // 잘못된 응답은 한 번만 재검토하고, 일시 장애는 네 번까지 시도한다.
-  const terminal=error.permanent===true||attempts>=(validation?2:4);
-  const base=[15,60,180][Math.min(attempts-1,2)];
+  // 짧은 재시도 구간보다 긴 제공자 장애도 기존 메시지의 지연 보완 기회를 남긴다.
+  // 인증·검증 실패와 요청 제한에는 장기 재시도를 추가하지 않으며 일일 예산은 별도로 유지한다.
+  const transient=/^analysis_(?:http_(?:408|500|502|503|504)|timeout|network)$/.test(error.code??'');
+  const terminal=error.permanent===true||attempts>=(validation?2:transient?6:4);
+  const base=[15,60,180,900,3600][Math.min(attempts-1,4)];
   const delaySeconds=Math.ceil(Math.max(error.retryAfter??0,base));
   return {attempts,terminal,delaySeconds};
 }
