@@ -17,13 +17,16 @@ async function dispatchSiteResets(env) {
   const jobs=await pendingDeliveries(env.DB,Date.now());
   if(jobs.length)await env.PROBE_JOBS.sendBatch(jobs);
 }
-async function reconcileSiteResets(env,events,now,token) {
-  const current=new Map(events.map(event=>[event.key,event]));
+async function readSiteSnapshot(db) {
   // 게시글 ID 인덱스로 먼저 찾는다. ID에 문자열을 붙여 비교하면 매분 전체 게시글을 반복 스캔한다.
   // URL 일치 조건은 기존 데이터의 잘못된 주소가 다른 게시글에 연결되는 것을 막는다.
-  const {results}=await env.DB.prepare(`SELECT e.*,p.body,p.published_at,p.context_json,p.analysis_json FROM site_reset_events e
+  const {results}=await db.prepare(`SELECT e.*,p.body,p.published_at,p.context_json,p.analysis_json FROM site_reset_events e
     LEFT JOIN watched_posts p ON p.id=substr(e.original_url,length('https://x.com/thsottiaux/status/')+1)
       AND e.original_url='https://x.com/thsottiaux/status/'||p.id`).all();
+  return results;
+}
+async function reconcileSiteResets(env,events,now,token,results) {
+  const current=new Map(events.map(event=>[event.key,event]));
   const guard='EXISTS(SELECT 1 FROM site_reset_state WHERE id=1 AND claim_token=?)';
   const statements=[];
   for(const row of results){
@@ -73,13 +76,18 @@ export async function pollSiteResets(env,now=Date.now()) {
   try{
     const events=await collectSiteResets(now);
     const guard='EXISTS(SELECT 1 FROM site_reset_state WHERE id=1 AND claim_token=?)';
-    const known=new Set((await env.DB.prepare('SELECT event_key FROM site_reset_events').all()).results.map(row=>row.event_key));
+    let snapshot=await readSiteSnapshot(env.DB);
+    const known=new Set(snapshot.map(row=>row.event_key));
     const statements=events.filter(event=>!known.has(event.key)).map(event=>env.DB.prepare(`INSERT OR IGNORE INTO site_reset_events
       (event_key,source_id,reset_type,announced_at,original_url,content,discovered_at,phase)
       SELECT ?,?,?,?,?,?,?,? WHERE ${guard}`)
       .bind(event.key,event.id,event.type,event.announcedAt,event.url,siteResetNotification(event),now,state.initialized_at===null?'baseline':'pending',token));
-    if(statements.length)await env.DB.batch(statements);
-    await reconcileSiteResets(env,events,now,token);
+    if(statements.length){
+      await env.DB.batch(statements);
+      snapshot=await readSiteSnapshot(env.DB);
+    }
+    // 변경 없는 목록은 같은 스냅샷으로 신규 ID 확인과 원문 대조를 수행한다.
+    await reconcileSiteResets(env,events,now,token,snapshot);
     await dispatchSiteResets(env);
     console.log(JSON.stringify({service:'tibo-bot',event:'site-reset-poll',baseline:state.initialized_at===null,records:events.length}));
   }catch(error){
