@@ -134,7 +134,7 @@ async function reviewBankedPost(env,postId) {
   // 읽은 뒤 분석이 바뀌었다면 덮어쓰지 않는다. 기존 메시지 ID를 보존해 수정 발송한다.
   await env.DB.batch([
     env.DB.prepare("UPDATE watched_posts SET analysis_json=? WHERE id=? AND phase='done' AND lease_until=0 AND analysis_json=?").bind(saved,row.id,row.analysis_json),
-    env.DB.prepare("UPDATE post_deliveries SET content=?,phase='pending',attempts=0,next_attempt=0,last_error=NULL WHERE post_id=? AND kind='reset' AND phase='done' AND message_id IS NOT NULL AND lease_until=0 AND EXISTS(SELECT 1 FROM watched_posts WHERE id=? AND analysis_json=?)").bind(content,row.id,row.id,saved),
+    env.DB.prepare("UPDATE post_deliveries SET content=?,phase='pending',attempts=0,next_attempt=0,last_error=NULL WHERE post_id=? AND kind IN ('link','reset') AND phase='done' AND message_id IS NOT NULL AND lease_until=0 AND EXISTS(SELECT 1 FROM watched_posts WHERE id=? AND analysis_json=?)").bind(content,row.id,row.id,saved),
   ]);
   await dispatchPending(env);
   log({event:'watch-banked-reviewed',status:analysis.status});
