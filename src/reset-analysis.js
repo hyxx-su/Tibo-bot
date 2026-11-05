@@ -6,7 +6,9 @@ const statuses=['scheduled','in_progress','completed','mentioned','unrelated'];
 
 async function requestAnalysis(env,post,reviewCode) {
   if(!env.GEMINI_API_KEY)throw analysisError('analysis_configuration','Gemini secret missing',{permanent:true});
-  const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',{
+  const model=env.RESET_ANALYSIS_MODEL??'gemini-3.1-flash-lite';
+  if(!['gemini-3.5-flash-lite','gemini-3.1-flash-lite'].includes(model))throw analysisError('analysis_configuration','Unsupported analysis model',{permanent:true});
+  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},signal:AbortSignal.timeout(45000),
     body:JSON.stringify({
       systemInstruction:{parts:[{text:`역할
@@ -56,25 +58,26 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
 출력 규칙
 - 지정된 JSON 필드만 출력한다. 판단 과정은 출력하지 않는다.
 - validation_feedback가 있으면 이전 응답이 해당 검증을 통과하지 못했다는 의미다. 현재 원문에서 다시 판단하고 근거를 지어내서 형식을 맞추지 않는다.
-- title_evidence는 제목의 주요 사실을 뒷받침하는 입력 원문 구절 배열(최대 4개), bullet_evidence는 bullets와 같은 순서·개수의 원문 구절 배열이다. 각 구절은 현재 text나 제공된 context 한 글의 연속된 문자열을 그대로 복사한다. 빈 미디어 본문만 있으면 빈 문자열을 쓴다. 근거 구절의 부정·시제·조건을 제목과 요약에도 보존한다.
+- title_evidence는 제목의 주요 사실을 뒷받침하는 입력 원문 구절 배열(최대 4개), summary_items는 요약과 근거를 묶은 배열이다. 각 항목의 text는 한국어 요약, evidence는 그 요약을 뒷받침하는 연속된 원문 구절 하나다. 여러 절이 필요하면 둘을 포함한 원문 전체 문장을 복사한다. 근거를 별도 항목으로 쪼개지 않는다. 각 구절은 현재 text나 제공된 context 한 글의 연속된 문자열을 그대로 복사한다. 빈 미디어 본문만 있으면 빈 문자열을 쓴다. 근거 구절의 부정·시제·조건을 제목과 요약에도 보존한다.
 - 출력 전에 현재 글의 대상·시제·부정·적용 범위와 분류/제목/요약이 일치하는지 점검한다. 출처의 문장을 복사한 것만으로 사실이 확인됐다고 여기지 않는다.
 - reset_type: regular/banked/unknown 중 하나. unrelated이면 unknown이다.
 - type_evidence: 유형을 뒷받침하는 현재 글 또는 직접 연결된 context의 연속된 원문 구절. unknown이면 빈 문자열. 정기 리셋과 저장형 지급의 부정·대조를 잘라 반대 유형으로 만들지 않는다.
 - title_ko: 초기화 관련 여부와 관계없이 현재 게시글의 핵심 내용을 한국어 60자 이내로 전달한다. 발표·업데이트는 구체적인 기사 제목으로, 짧은 답글·농담·감탄은 말의 의미를 자연스럽게 옮긴 짧은 제목으로 쓴다. 단순 상태 라벨(“초기화 관련 언급”, “저장형 리셋 지급 진행 중”)로 글 전체를 대신하지 않는다. 제품·기능 발표와 사용자 수 달성, 초기화권 지급 등 여러 주요 소식이 함께 있으면 중요한 소식을 함께 담는다. 핵심 고유명사와 수치는 원문 그대로 보존하고 사소한 인사말은 제외한다.
 - 제목의 예정·진행·완료·취소·부정을 현재 원문과 일치시킨다. 지급 진행을 지급 완료로, 저장형 초기화권 지급을 현재 사용량 초기화로 바꾸지 않는다. 원문에 없는 “예상보다 일찍”, 실제 적용 시각, 제품·수치는 넣지 않는다. 연결 문맥은 현재 답글의 생략된 대상을 이해할 때만 쓰고 이전 글의 소식을 현재 글의 제목으로 복사하지 않는다. 짧은 글은 짧고 정확한 제목으로 쓴다. 링크·Markdown·멘션은 넣지 않는다. 본문이 비어 있으면 “이미지·미디어 게시글”로 쓴다.
-- bullets: 한국어 핵심 요약 배열. 정보가 충분한 일반 글은 2~4개, 초기화 관련 글은 2~3개로 정리한다. 짧은 글·단순 답변은 1개만 쓴다. 개수를 채우려고 반복하거나 없는 정보를 추가하지 않는다. 각 항목은 180자 이내의 독립된 문장이고, 글머리 기호·Markdown·링크는 넣지 않는다.
+- summary_items: text와 evidence를 가진 한국어 핵심 요약 배열. 정보가 충분한 일반 글은 2~4개, 초기화 관련 글은 2~3개로 정리한다. 짧은 글·단순 답변은 1개만 쓴다. 개수를 채우려고 반복하거나 없는 정보를 추가하지 않는다. 각 항목은 180자 이내의 독립된 문장이고, 글머리 기호·Markdown·링크는 넣지 않는다.
 - 가장 중요한 사실을 첫 항목에 쓴다. 초기화 관련 글은 초기화의 대상·현재 상태를 첫 항목에 놓고, 다른 항목에는 원문에 있는 수치·조건·범위·변경 사항을 중요도순으로 담는다. 원인·영향·후속 조치도 원문에 있을 때만 쓴다. 동일한 사실을 표현만 바꿔 반복하지 않는다.
 - 요약은 현재 글의 반응·주장을 중심으로 쓰고 연결된 답글 대상·인용 본문에서 이해에 필요한 핵심 사실을 함께 설명한다. 현재 글과 관련 없는 과거 소식은 나열하지 않는다. 인용된 발표의 제품명·수치·조건은 원문에 있을 때 작성 주체를 구별해 반영한다. 현재 글의 정정·부정·취소가 과거 예고보다 우선한다. 취소·연기된 과거 기한을 유효한 예정 시각처럼 쓰지 않는다. “초기화와 무관하다” 같은 분류 설명은 요약에 넣지 않는다.
 - 짧은 영어 답글도 원문을 복사한 뒤 “게시글”, “언급”, “라는 내용을 게시했다”를 붙이는 식으로 제목·요약을 채우지 않는다. 한국어 독자가 그 말의 뜻을 이해할 수 있도록 번역한다. 관용어·밈은 널리 쓰이는 의미가 분명할 때만 간단히 풀이하고, 알 수 없는 고유명사나 표현은 그대로 보존한다. 예: “That tracks”는 “말이 되네”라는 동의이고 이동 경로 추적이 아니다. 제공된 문맥이 달리 가리키면 그 문맥을 우선한다.
-- 짧은 반응의 bullets는 1개로 말의 의미나 어감을 설명한다. 제목을 길게 반복하거나 “작성자가 글을 올렸다”라는 자명한 설명은 쓰지 않는다. 답글의 대상·이유가 입력에 없으면 어느 사건·사진을 두고 한 말인지, 누구를 비판하거나 칭찬하는지 추측하지 않는다. 원문 인용만으로 뜻을 전달할 수 없는 경우에는 문맥 부족을 짧게 명시한다. 농담을 제품 발표나 초기화 실행으로 확대하지 않는다.
+- 짧은 반응의 summary_items는 1개로 말의 의미나 어감을 설명한다. 제목을 길게 반복하거나 “작성자가 글을 올렸다”라는 자명한 설명은 쓰지 않는다. 답글의 대상·이유가 입력에 없으면 어느 사건·사진을 두고 한 말인지, 누구를 비판하거나 칭찬하는지 추측하지 않는다. 원문 인용만으로 뜻을 전달할 수 없는 경우에는 문맥 부족을 짧게 명시한다. 농담을 제품 발표나 초기화 실행으로 확대하지 않는다.
 - 짧은 답글에서는 제목 자체에 실제 말뜻을 담는다. “가벼운 농담조의 멘션 답글 게시”, “작성자의 짧은 동의 반응”처럼 행위만 설명하는 제목은 금지한다. 요약도 “가벼운 농담성 문구를 남겼다”처럼 내용이 사라진 문장으로 대체하지 않는다. 문맥이 부족해도 표현 자체의 확실한 뜻까지 없애지 않는다.
+- Might be, maybe, could be 같은 가능성 표현은 제목과 요약 모두 “그럴 수도”, “가능성”처럼 유보를 유지한다. 확정적인 동의·인정·발표로 바꾸지 않는다.
 - 짧은 표현 예시(이 표현이 입력에 있을 때만 적용): “Exactly!” → 제목 “바로 그거야”, 요약 “상대의 말이 정확히 맞는다는 동의 표현이다.”; “That tracks.” → 제목 “말이 되네”, 요약 “앞선 말이 이치에 맞거나 납득된다는 뜻이다.”; “Lore accurate hero” → 제목 “설정에 충실한 영웅”, 요약 “캐릭터의 모습이 원래 설정과 잘 맞는다는 뜻의 밈 표현이다.” 실제 인물에 쓴 lore accurate도 그 인물의 알려진 이미지에 부합한다는 농담이지만, 어떤 행동·특징을 가리키는지는 입력 근거 없이는 붙이지 않는다. 예시의 고유명사·대상을 현재 글에 복사하지 않는다.
 - 수치·고유명사·대상·조건·예정/진행/완료·부정·불확실성을 보존한다. 초기화 시간을 직접 환산하지 않는다. 원문에 없는 실제 반영 시각, 기존 예상보다 빠르다는 비교, 계정별 적용 차이를 추가하지 않는다. 본문 없는 미디어 글은 첨부 사실만 1개로 안내하고 이미지 내용을 추측하지 않는다.
 - evidence: 관련 상태라면 현재 글 또는 context 한 글에 실제 존재하는 연속된 구절을 그대로 복사한다. completed/in_progress는 반드시 현재 text의 구절을 사용한다. 부정·일부·진행 중이라는 제한을 잘라 반대 의미의 근거로 제시하지 않는다. unrelated는 빈 문자열이다.
 - time_expression: scheduled인 경우 현재 유효한 초기화 시각·기한의 연속된 원문 표현만 그대로 복사한다. by/before/at/within 같은 기한·시각 구분과 next도 포함한다. 예: 'By midnight PST', 'tomorrow at 9am PT', 'in 2 hours', 'within the next 3 hours'. within을 in으로 바꾸지 않는다. EOD/soon 같은 모호한 표현을 자정이나 임의의 시각으로 풀어 쓰지 않는다. 현재 글에서 수정·취소한 과거 시간은 추출하지 않는다. completed/in_progress/mentioned/unrelated 또는 유효한 시간 표현이 없으면 빈 문자열이다.
 - 날짜·시간대·제품·적용 대상을 만들지 않는다. 게시 시각을 초기화 실행 시각으로 쓰지 않는다.`}]},
       contents:[{role:'user',parts:[{text:JSON.stringify({author:'thsottiaux',date:post.date,text:post.text,context:post.context??[],validation_feedback:reviewCode??null})}]}],
-      generationConfig:{temperature:0,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{title_evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},bullet_evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},bullets:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['title_evidence','bullet_evidence','status','reset_type','type_evidence','title_ko','bullets','evidence','time_expression']}},
+      generationConfig:{maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{title_evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},summary_items:{type:'ARRAY',items:{type:'OBJECT',properties:{text:{type:'STRING'},evidence:{type:'STRING'}},required:['text','evidence']},minItems:1,maxItems:4},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['title_evidence','status','reset_type','type_evidence','title_ko','summary_items','evidence','time_expression']}},
     }),
   });
   if(!response.ok){
@@ -88,6 +91,13 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   const text=(data.candidates?.[0]?.content?.parts??[]).filter(p=>!p.thought).map(p=>p.text??'').join('');
   const result=JSON.parse(text);
   if(!result||typeof result!=='object'||Array.isArray(result))throw new Error('Invalid reset analysis');
+  // 생성 스키마에서 요약과 근거를 함께 받되 저장·발송 형식은 유지한다.
+  if(result.summary_items!==undefined){
+    if(!Array.isArray(result.summary_items)||result.summary_items.length<1||result.summary_items.length>4||result.summary_items.some(item=>!item||typeof item.text!=='string'||typeof item.evidence!=='string'))throw analysisError('analysis_summary_evidence','Summary evidence missing');
+    result.bullets=result.summary_items.map(item=>item.text);
+    result.bullet_evidence=result.summary_items.map(item=>item.evidence);
+    delete result.summary_items;
+  }
   validateSummaryEvidence(post,result);
   if(result.bullets!==undefined){
     result.bullets=validatedBullets(result.bullets);
@@ -111,7 +121,7 @@ Tibo(@thsottiaux)의 현재 새 게시글에서 사용량·이용 한도 초기�
   const timeSource=expression?sources.find(source=>source.text.includes(expression)):null;
   const time=timeSource&&typeof timeSource.date==='string'?parseResetTime(expression,publishedTimestamp(timeSource)):null;
   if(time&&/\b(by|before)\b|까지/i.test(expression))time.relation='deadline';
-  return {...result,title_ko:result.title_ko?.trim().slice(0,60)??'',reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
+  return {...result,model,title_ko:result.title_ko?.trim().slice(0,60)??'',reset_type:resetType,type_evidence:resetType==='unknown'?'':typeEvidence,time_expression:timeSource?expression:'',summary_ko:result.summary_ko.slice(0,600),time,previousExpectedAt:Number.isFinite(post.previousExpectedAt)?post.previousExpectedAt:null,usage:data.usageMetadata??null};
 }
 
 const validationCodes=new Map([
