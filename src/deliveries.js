@@ -8,8 +8,20 @@ export async function queueDeliveries(env,post,content,kind) {
   // 각 서버의 목적지를 저장하므로 다른 서버의 실패·재시도가 성공한 서버를 재발송하지 않는다.
   await env.DB.prepare(`INSERT OR IGNORE INTO post_deliveries (post_id,guild_id,kind,channel_id,content,message_id)
     SELECT ?,guild_id,?,${channel},?,CASE WHEN guild_id=? THEN ? ELSE NULL END FROM guild_settings
-    WHERE active=1 AND ${channel} IS NOT NULL AND ${activated}<=?`)
-    .bind(post.id,kind,content,env.DISCORD_TEST_GUILD_ID??'',post.message_id,post.discovered_at).run();
+    WHERE active=1 AND ${channel} IS NOT NULL AND ${activated}<=?
+      ${kind==='reset'?"AND NOT EXISTS(SELECT 1 FROM post_deliveries d WHERE d.post_id=? AND d.guild_id=guild_settings.guild_id AND d.kind='link')":''}`)
+    .bind(post.id,kind,content,env.DISCORD_TEST_GUILD_ID??'',post.message_id,post.discovered_at,...(kind==='reset'?[post.id]:[])).run();
+}
+
+export async function queuePostNotification(env,post,content,kind) {
+  // 장애 중 먼저 보낸 링크는 동일 메시지로 보완한다. 관리자 재분석도 같은 메시지에 반영하며 사이트 정정은 건드리지 않는다.
+  const url=`https://x.com/thsottiaux/status/${post.id}`;
+  if(content!==url)await env.DB.prepare(`UPDATE post_deliveries SET content=?,
+    phase=CASE WHEN phase IN ('done','failed') THEN 'pending' ELSE phase END,
+    attempts=CASE WHEN lease_until<=? THEN 0 ELSE attempts END,next_attempt=0,last_error=NULL
+    WHERE post_id=? AND kind='link' AND content<>? AND phase IN ('pending','done','failed')`)
+    .bind(content,Date.now(),post.id,content).run();
+  await queueDeliveries(env,post,content,kind);
 }
 
 export async function pendingDeliveries(db,now,includeSiteResets=true) {
@@ -41,11 +53,16 @@ export async function processDeliveryJob(message,env) {
     if((row.kind!=='site-correction'&&(!settings?.active||destination!==row.channel_id||(source&&source.discovered_at<activated)))||(row.kind==='site-correction'&&!row.message_id)){
       await env.DB.prepare("UPDATE post_deliveries SET phase='cancelled',lease_until=0,claim_token=NULL WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(row.post_id,row.guild_id,row.kind,token).run();
     }else{
-      const messageId=row.kind==='link'&&row.message_id?row.message_id:await sendNotification(env,row.post_id,row.content,row.kind,row.message_id,row.channel_id);
-      const statements=[env.DB.prepare("UPDATE post_deliveries SET phase='done',message_id=?,lease_until=0,claim_token=NULL,last_error=NULL WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(messageId,row.post_id,row.guild_id,row.kind,token)];
+      const started=Date.now();
+      const messageId=await sendNotification(env,row.post_id,row.content,row.kind,row.message_id,row.channel_id);
+      const statements=[env.DB.prepare("UPDATE post_deliveries SET phase=CASE WHEN content=? THEN 'done' ELSE 'pending' END,message_id=?,lease_until=0,claim_token=NULL,last_error=NULL WHERE post_id=? AND guild_id=? AND kind=? AND claim_token=?").bind(row.content,messageId,row.post_id,row.guild_id,row.kind,token)];
       // 기존 단일 서버의 관리자 재분석과 발송 기록 호환성을 보존한다.
-      if(!['site-reset','site-correction'].includes(row.kind)&&row.guild_id===env.DISCORD_TEST_GUILD_ID)statements.push(env.DB.prepare(`UPDATE watched_posts SET ${row.kind==='link'?'message_id':'reset_message_id'}=? WHERE id=?`).bind(messageId,row.post_id));
+      if(!['site-reset','site-correction'].includes(row.kind)&&row.guild_id===env.DISCORD_TEST_GUILD_ID){
+        statements.push(env.DB.prepare(`UPDATE watched_posts SET ${row.kind==='link'?'message_id':'reset_message_id'}=?,
+          reset_message_id=CASE WHEN json_extract(analysis_json,'$.status') IN ('scheduled','in_progress','completed','mentioned') THEN ? ELSE reset_message_id END WHERE id=?`).bind(messageId,messageId,row.post_id));
+      }
       await env.DB.batch(statements);
+      console.log(JSON.stringify({service:'tibo-bot',event:'delivery-complete',postId:row.post_id,kind:row.kind,edited:Boolean(row.message_id),send_ms:Date.now()-started,discovery_to_delivery_ms:source?Date.now()-source.discovered_at:null}));
     }
     message.ack();
   }catch(error){

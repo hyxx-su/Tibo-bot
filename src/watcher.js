@@ -1,15 +1,16 @@
 export {sendNotification} from './notifications.js';
 import {seedLegacyGuild,pendingSetupJobs} from './guild-settings.js';
-import {queueDeliveries,pendingDeliveries,processDeliveryJob} from './deliveries.js';
+import {queueDeliveries,queuePostNotification,pendingDeliveries,processDeliveryJob} from './deliveries.js';
 import {collectTimelinePage} from './collector.js';
 import {analyzeReset,resetNotification,postNotification} from './reset-analysis.js';
-import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,reserveAnalysis,deferAnalysis,resolveQuoteContext} from './watch-store.js';
+import {acquirePoll,recordPage,pendingJobs,claimPost,advancePost,retryPost,analysisRetryPolicy,reserveAnalysis,deferAnalysis,resolveQuoteContext} from './watch-store.js';
 
 const log=data=>console.log(JSON.stringify({service:'tibo-bot',...data}));
 export const watchEnabled=env=>env.WATCH_ENABLED==='true';
 
 async function dispatchPending(env) {
-  const jobs=[...await pendingJobs(env.DB,Date.now()),...await pendingDeliveries(env.DB,Date.now(),env.SITE_RESETS_ENABLED==='true')];
+  const groups=await Promise.all([pendingJobs(env.DB,Date.now()),pendingDeliveries(env.DB,Date.now(),env.SITE_RESETS_ENABLED==='true')]);
+  const jobs=groups.flat();
   if(jobs.length)await env.PROBE_JOBS.sendBatch(jobs);
 }
 
@@ -40,7 +41,7 @@ async function poll(env,job) {
 }
 
 
-async function processPost(env,job) {
+async function processPostStage(env,job) {
   const token=crypto.randomUUID();
   const row=await claimPost(env.DB,job.postId,job.phase,Date.now(),token);
   if(!row)return;
@@ -53,43 +54,58 @@ async function processPost(env,job) {
       if(needsAnalysis){
         next='analyze';await advancePost(env.DB,row,token,next);
       }else{
-        await queueDeliveries(env,row,postNotification(post,JSON.parse(row.analysis_json)),'link');
+        await queuePostNotification(env,row,postNotification(post,JSON.parse(row.analysis_json)),'link');
         next='done';await advancePost(env.DB,row,token,next);
         await dispatchPending(env);
       }
     }else if(row.phase==='analyze'){
       const limit=Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100));
       if(!await reserveAnalysis(env.DB,Date.now(),limit)){
-        await deferAnalysis(env.DB,row,token,Date.now());log({event:'watch-analysis-budget'});return;
+        await queueDeliveries(env,row,`https://x.com/thsottiaux/status/${row.id}`,'link');
+        await deferAnalysis(env.DB,row,token,Date.now());await dispatchPending(env);log({event:'watch-analysis-budget'});return;
       }
-      const analysis=await analyzeReset(env,await resolveQuoteContext(env.DB,post));
+      const analysis=await analyzeReset(env,await resolveQuoteContext(env.DB,post),{reviewCode:row.last_error});
       next=analysis.status==='unrelated'?'link':'reset';
       await advancePost(env.DB,row,token,next,{analysis});
-      log({event:'watch-analysis',status:analysis.status,timeResolved:Boolean(analysis.time),totalTokens:analysis.usage?.totalTokenCount});
+      log({event:'watch-analysis',postId:row.id,analysis_ms:analysis.metrics?.analysis_ms,review:analysis.metrics?.review,discovery_to_analysis_ms:Date.now()-row.discovered_at,status:analysis.status,timeResolved:Boolean(analysis.time),totalTokens:analysis.usage?.totalTokenCount});
     }else if(row.phase==='reset'){
       const content=resetNotification(post,JSON.parse(row.analysis_json));
       if(!content)throw new Error('Reset notification missing');
-      await queueDeliveries(env,row,content,'reset');
+      await queuePostNotification(env,row,content,'reset');
       next='done';await advancePost(env.DB,row,token,next);
       await dispatchPending(env);
     }
     log({event:'watch-post',phase:row.phase,next});
   }catch(error){
-    if(row.phase==='analyze'&&row.attempts>=5){
-      // 분석 장애로 원문까지 누락되지 않게 최종 실패 시 링크 전송으로 마무리한다.
-      next='link';await advancePost(env.DB,row,token,next,{analysis:{status:'unavailable'}});
-      log({event:'watch-analysis-fallback'});
+    if(row.phase==='analyze'){
+      await queueDeliveries(env,row,`https://x.com/thsottiaux/status/${row.id}`,'link');
+      await dispatchPending(env);
+    }
+    const policy=analysisRetryPolicy(row,error);
+    if(row.phase==='analyze'&&policy.terminal){
+      next='link';await advancePost(env.DB,row,token,next,{analysis:{status:'unavailable',failure_code:error.code??'processing_failed'}});
+      log({event:'watch-analysis-fallback',postId:row.id,code:error.code??'processing_failed'});
     }else{
       const action=await retryPost(env.DB,row,token,Date.now(),error);
-      log({event:'watch-post',phase:row.phase,action,code:error.code??'processing_failed'});
+      log({event:'watch-post',postId:row.id,phase:row.phase,action,code:error.code??'processing_failed',analysis_ms:error.durationMs});
+      if(action==='retry'&&row.phase==='analyze'){
+        // 지연 Queue 발행이 실패해도 Cron이 D1의 next_attempt를 읽어 복구한다.
+        try{await env.PROBE_JOBS.send({kind:'watch-post',postId:row.id,phase:row.phase},{delaySeconds:policy.delaySeconds});}
+        catch{log({event:'watch-dispatch-deferred'});}
+      }
       return;
     }
   }
-  if(next&&next!=='done'){
-    // 저장 후 큐 발행이 실패해도 다음 주기에서 D1의 미완료 작업을 다시 찾는다.
-    try{await env.PROBE_JOBS.send({kind:'watch-post',postId:row.id,phase:next});}
-    catch{log({event:'watch-dispatch-deferred'});}
+  return next;
+}
+async function processPost(env,job) {
+  // 단계별 저장·재획득을 유지하면서 Queue 대기를 줄인다. 중복 실행은 claim으로 차단한다.
+  for(let step=0;step<3;step++){
+    const next=await processPostStage(env,job);
+    if(!next||next==='done')return;
+    job={kind:'watch-post',postId:job.postId,phase:next};
   }
+  try{await env.PROBE_JOBS.send(job);}catch{log({event:'watch-dispatch-deferred'});}
 }
 
 async function replayPost(env,postId) {

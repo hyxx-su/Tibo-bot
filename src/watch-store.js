@@ -43,13 +43,23 @@ export async function advancePost(db,row,token,phase,fields={}) {
     .bind(phase,fields.messageId??null,fields.resetMessageId??null,fields.analysis?JSON.stringify(fields.analysis):null,row.id,token).run();
 }
 
-export async function retryPost(db,row,token,now,error) {
+export function analysisRetryPolicy(row,error) {
+  const validation=/^analysis_(?:schema|title|summary|type|type_evidence|evidence|current_evidence|summary_evidence|contradiction|json|truncated)$/.test(error.code??'');
   const attempts=row.attempts+1;
-  const terminal=attempts>=6||error.permanent===true;
-  const delay=Math.max(error.retryAfter??0,[60,120,300,900,3600,3600][Math.min(attempts-1,5)])*1000;
+  // 잘못된 응답은 한 번만 재검토하고, 일시 장애는 네 번까지 시도한다.
+  const terminal=error.permanent===true||attempts>=(validation?2:4);
+  const base=[15,60,180][Math.min(attempts-1,2)];
+  const delaySeconds=Math.ceil(Math.max(error.retryAfter??0,base));
+  return {attempts,terminal,delaySeconds};
+}
+export async function retryPost(db,row,token,now,error) {
+  const policy=row.phase==='analyze'?analysisRetryPolicy(row,error):{
+    attempts:row.attempts+1,terminal:row.attempts>=5||error.permanent===true,
+    delaySeconds:Math.max(error.retryAfter??0,[60,120,300,900,3600,3600][Math.min(row.attempts,5)]),
+  };
   await db.prepare('UPDATE watched_posts SET phase=?,attempts=?,next_attempt=?,lease_until=0,claim_token=NULL,last_error=? WHERE id=? AND claim_token=?')
-    .bind(terminal?'failed':row.phase,attempts,now+delay,error.code??'processing_failed',row.id,token).run();
-  return terminal?'failed':'retry';
+    .bind(policy.terminal?'failed':row.phase,policy.attempts,now+policy.delaySeconds*1000,error.code??'processing_failed',row.id,token).run();
+  return policy.terminal?'failed':'retry';
 }
 
 export async function reserveAnalysis(db,now,limit) {
