@@ -4,23 +4,23 @@ import {readFile} from 'node:fs/promises';
 import {Miniflare,Log,LogLevel} from 'miniflare';
 import {processWatchJob} from '../src/watcher.js';
 import {processDeliveryJob} from '../src/deliveries.js';
-import {analysisRetryPolicy} from '../src/watch-store.js';
+import {analysisRetryPolicy,pendingJobs} from '../src/watch-store.js';
 
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-07-30',log:new Log(LogLevel.ERROR),d1Databases:['DB']});
 const db=await mf.getD1Database('DB');
 for(const name of ['0001_watch.sql','0002_thread_context.sql','0003_guild_channels.sql','0006_notification_channels.sql'])await db.batch((await readFile(new URL('../migrations/'+name,import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
-const jobs=[],calls=[];let failure=0,hold=null,enter=null;
+const jobs=[],calls=[];let failure=0,hold=null,enter=null,discordFailure=0,invalidEvidence=false;
 const env={DB:db,WATCH_ENABLED:'true',DISCORD_TEST_GUILD_ID:'2',DISCORD_NOTIFY_CHANNEL_ID:'3',DISCORD_BOT_TOKEN:'fixture',GEMINI_API_KEY:'fixture',PROBE_JOBS:{async send(body,options){jobs.push({body,options});},async sendBatch(batch){jobs.push(...batch);}}};
 const original=globalThis.fetch;
 globalThis.fetch=async(url,options)=>{
   if(String(url).includes('generativelanguage.googleapis.com')){
     const input=JSON.parse(JSON.parse(options.body).contents[0].parts[0].text);calls.push({kind:'analysis',input});
     if(failure)return new Response('',{status:failure,headers:{'Retry-After':failure===429?'900':'0'}});
-    return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({status:'completed',reset_type:'regular',type_evidence:input.text,evidence:input.text,time_expression:'',title_ko:'사용량 초기화 완료',bullets:['사용량 초기화가 완료됐습니다.'],title_evidence:[input.text],bullet_evidence:[input.text]})}]}}]});
+    return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({status:'completed',reset_type:'regular',type_evidence:input.text,evidence:input.text,time_expression:'',title_ko:'사용량 초기화 완료',bullets:['사용량 초기화가 완료됐습니다.'],title_evidence:[input.text],bullet_evidence:[invalidEvidence?'Invented source':input.text]})}]}}]});
   }
   if(String(url).startsWith('https://discord.com/')){
     calls.push({kind:'discord',method:options.method,content:JSON.parse(options.body).content});
-    enter?.();if(hold)await hold;return Response.json({id:'9001'});
+    enter?.();if(hold)await hold;if(discordFailure)return Response.json({code:10008},{status:discordFailure});return Response.json({id:'9001'});
   }
   throw new Error('Unexpected destination');
 };
@@ -30,7 +30,7 @@ const postJob=phase=>processWatchJob({body:{kind:'watch-post',postId:'100',phase
 const send=()=>processDeliveryJob({body:{kind:'watch-delivery',postId:'100',guildId:'2',deliveryKind:'link'},ack(){}},env);
 async function reset(){
   await db.batch([db.prepare('DELETE FROM watched_posts'),db.prepare('DELETE FROM post_deliveries'),db.prepare('DELETE FROM analysis_budget'),db.prepare("INSERT OR IGNORE INTO guild_settings(guild_id,channel_id) VALUES('2','3')"),db.prepare("INSERT INTO watched_posts(id,body,published_at,phase,discovered_at) VALUES('100','The usage reset is completed.','2026-11-01T12:00:00Z','link',?)").bind(Date.now())]);
-  jobs.length=0;calls.length=0;failure=0;hold=null;enter=null;
+  jobs.length=0;calls.length=0;failure=0;hold=null;enter=null;discordFailure=0;invalidEvidence=false;
 }
 try{
   await test('정상 게시글은 Queue 재발행 없이 단계별 저장을 완료하고 중복 작업은 분석하지 않는다',async()=>{
@@ -76,12 +76,49 @@ try{
   });
   await test('검증 실패·서버 장애·요청 제한의 재시도 횟수를 구별한다',()=>{
     assert.equal(analysisRetryPolicy({attempts:0},{code:'analysis_evidence'}).terminal,false);
-    assert.equal(analysisRetryPolicy({attempts:1},{code:'analysis_evidence'}).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:1},{code:'analysis_evidence'}).recovery,true);
+    assert.equal(analysisRetryPolicy({attempts:1},{code:'analysis_evidence'}).delaySeconds,21600);
     assert.deepEqual([0,1,2].map(attempts=>analysisRetryPolicy({attempts},{code:'analysis_http_503'}).delaySeconds),[15,60,180]);
     assert.equal(analysisRetryPolicy({attempts:3},{code:'analysis_http_503'}).terminal,false);
     assert.deepEqual([3,4].map(attempts=>analysisRetryPolicy({attempts},{code:'analysis_http_503'}).delaySeconds),[900,3600]);
-    assert.equal(analysisRetryPolicy({attempts:5},{code:'analysis_http_503'}).terminal,true);
-    assert.equal(analysisRetryPolicy({attempts:3},{code:'analysis_http_429'}).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:5},{code:'analysis_http_503'}).recovery,true);
+    assert.equal(analysisRetryPolicy({attempts:3},{code:'analysis_http_429'}).recovery,true);
     assert.equal(analysisRetryPolicy({attempts:0},{code:'analysis_http_503',permanent:true}).terminal,true);
+  });
+  for(const [code,attempts] of [['validation',1],[503,5],[429,3]])await test('짧은 재시도 소진 후 Cron이 복구하고 기존 메시지만 수정: '+code,async()=>{
+    await reset();failure=503;await postJob('link');await send();
+    failure=code==='validation'?0:code;invalidEvidence=code==='validation';
+    await db.prepare('UPDATE watched_posts SET attempts=?,next_attempt=0').bind(attempts).run();jobs.length=0;
+    await postJob('analyze');const waiting=await row();
+    assert.equal(waiting.phase,'analyze');assert.equal(waiting.analysis_json,null);assert.equal(waiting.attempts,attempts+1);
+    assert.ok(waiting.next_attempt>Date.now()+21500000);assert.equal(jobs.filter(j=>j.body.kind==='watch-post').length,0);
+    assert.deepEqual(await pendingJobs(db,waiting.next_attempt-1),[]);
+    assert.equal((await pendingJobs(db,waiting.next_attempt))[0].body.postId,'100');
+    const before=calls.filter(c=>c.kind==='analysis').length;await postJob('analyze');assert.equal(calls.filter(c=>c.kind==='analysis').length,before);
+    failure=0;invalidEvidence=false;await db.prepare('UPDATE watched_posts SET next_attempt=0').run();
+    await Promise.all([postJob('analyze'),postJob('analyze')]);await send();await send();
+    assert.deepEqual(calls.filter(c=>c.kind==='discord').map(c=>c.method),['POST','PATCH']);
+    assert.equal((await delivery()).message_id,'9001');assert.equal((await delivery()).phase,'done');assert.equal((await row()).phase,'done');
+    assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM post_deliveries').first()).n,1);
+  });
+  await test('장기 복구도 일일 예산을 초과해 모델을 호출하지 않는다',async()=>{
+    await reset();failure=503;await postJob('link');await send();
+    await db.prepare('UPDATE watched_posts SET attempts=6,next_attempt=0').run();await db.prepare('UPDATE analysis_budget SET calls=100').run();
+    const before=calls.filter(c=>c.kind==='analysis').length;failure=0;await postJob('analyze');
+    assert.equal(calls.filter(c=>c.kind==='analysis').length,before);assert.equal((await row()).last_error,'daily_analysis_limit');assert.equal((await delivery()).message_id,'9001');
+  });
+  await test('장기 복구는 최대 10회와 7일 안에서만 예약하고 Retry-After를 지킨다',()=>{
+    const now=Date.now(),error={code:'analysis_http_429'};
+    assert.equal(analysisRetryPolicy({attempts:9,discovered_at:now},error,now).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:6,discovered_at:now-7*86400000},error,now).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:6,discovered_at:now},error,now).delaySeconds,86400);
+    assert.equal(analysisRetryPolicy({attempts:3,discovered_at:now},{...error,retryAfter:80000},now).delaySeconds,80000);
+    assert.equal(analysisRetryPolicy({attempts:3,discovered_at:now-7*86400000+1000},error,now).terminal,true);
+  });
+  await test('기존 메시지가 삭제되었으면 복구 PATCH를 새 POST로 바꾸지 않는다',async()=>{
+    await reset();failure=503;await postJob('link');await send();failure=0;
+    await db.prepare('UPDATE watched_posts SET next_attempt=0').run();await postJob('analyze');discordFailure=404;await send();
+    assert.deepEqual(calls.filter(c=>c.kind==='discord').map(c=>c.method),['POST','PATCH']);
+    assert.equal((await delivery()).phase,'failed');assert.equal((await delivery()).message_id,'9001');assert.equal((await delivery()).last_error,'discord_404');
   });
 }finally{globalThis.fetch=original;await mf.dispose();}

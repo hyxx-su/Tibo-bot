@@ -32,6 +32,28 @@ try{
     globalThis.fetch=async()=>respond({...result,bullet_evidence:['All accounts are done.']});
     await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_summary_evidence');
   });
+  for(const [encoded,decoded] of [
+    ['Nova &amp; Orbit are here.','Nova & Orbit are here.'],
+    ['Nova &#38; Orbit are here.','Nova & Orbit are here.'],
+    ['Nova &#x26; Orbit are here.','Nova & Orbit are here.'],
+    ['It&#39;s &quot;ready&quot; &lt;now&gt;.','It\'s "ready" <now>.'],
+    ['Nova&nbsp;Orbit &#x1f680;','Nova\u00a0Orbit 🚀'],
+  ])await test('표시 문자로 인용한 HTML 엔티티를 저장 원문으로 복원: '+encoded,async()=>{
+    const current={...post,text:encoded};
+    globalThis.fetch=async()=>respond({...result,status:'unrelated',reset_type:'unknown',type_evidence:'',evidence:'',title_ko:'새 모델 안내',title_evidence:[decoded],summary_items:[{text:'새 모델을 안내했다.',evidence:[decoded]}]});
+    const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);
+    assert.deepEqual(analysis.title_evidence,[encoded]);assert.deepEqual(analysis.summary_evidence[0].quotes,[encoded]);assert.equal(analysis.metrics.calls,1);
+  });
+  await test('인용 문맥의 엔티티도 복원하되 부정 누락과 서로 다른 글의 합성은 거부한다',async()=>{
+    const current={...post,text:'These models are efficient.',context:[{author:'reader',text:'Nova &amp; Orbit are not released.'}]};
+    const value={...result,status:'unrelated',reset_type:'unknown',type_evidence:'',evidence:'',title_ko:'모델 효율성 언급',title_evidence:[current.text],summary_items:[{text:'모델 효율성에 대해 언급했다.',evidence:['Nova & Orbit are not released.',current.text]}]};
+    globalThis.fetch=async()=>respond(value);const analysis=await analyzeReset({GEMINI_API_KEY:'fixture'},current);
+    assert.deepEqual(analysis.summary_evidence[0].quotes,[current.context[0].text,current.text]);
+    for(const evidence of ['Nova & Orbit are released.','Nova & Orbit are not released. These models are efficient.','Nova &madeup; Orbit are not released.']){
+      globalThis.fetch=async()=>respond({...value,summary_items:[{text:'합성 요약',evidence:[evidence]}]});
+      await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},current),e=>e.code==='analysis_summary_evidence');
+    }
+  });
   await test('근거 자체가 진행 중이면 완료 결과를 거부한다',async()=>{
     globalThis.fetch=async()=>respond({...result,status:'completed'});
     await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_contradiction');
