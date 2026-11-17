@@ -94,11 +94,7 @@ Return only the schema fields. validation_feedback is an internal error code: co
       generationConfig:{maxOutputTokens:2048,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',propertyOrdering:['title_ko','summary_items','title_evidence','status','reset_type','type_evidence','evidence','time_expression'],properties:{title_evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4},status:{type:'STRING',enum:statuses},reset_type:{type:'STRING',enum:resetTypes},type_evidence:{type:'STRING'},title_ko:{type:'STRING'},summary_items:{type:'ARRAY',items:{type:'OBJECT',properties:{text:{type:'STRING'},evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4}},required:['text','evidence']},minItems:1,maxItems:4},evidence:{type:'STRING'},time_expression:{type:'STRING'}},required:['title_evidence','status','reset_type','type_evidence','title_ko','summary_items','evidence','time_expression']}},
     }),
   });
-  if(!response.ok){
-    const retryAfter=parseRetryAfter(response.headers.get('retry-after'));
-    await response.body?.cancel();
-    throw analysisError('analysis_http_'+response.status,'Reset analysis HTTP '+response.status,{retryAfter,permanent:response.status>=400&&response.status<500&&![408,429].includes(response.status)});
-  }
+  if(!response.ok)throw await analysisHttpError(response);
   const data=JSON.parse(await readLimitedText(response,65536));
   const finish=data.candidates?.[0]?.finishReason;
   if(finish&&finish!=='STOP')throw analysisError(finish==='MAX_TOKENS'?'analysis_truncated':'analysis_blocked','Analysis response incomplete',{permanent:finish!=='MAX_TOKENS'});
@@ -238,10 +234,7 @@ async function repairSummary(env,post,result,targets,timeoutMs,onRequest) {
       generationConfig:{maxOutputTokens:1536,thinkingConfig:{thinkingLevel:'MEDIUM'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{replacements:{type:'ARRAY',minItems:fields.length,maxItems:fields.length,items:{type:'OBJECT',properties:{field:{type:'STRING',enum:fields},text:{type:'STRING'},evidence:{type:'ARRAY',items:{type:'STRING'},minItems:1,maxItems:4}},required:['field','text','evidence']}}},required:['replacements']}},
     }),
   });
-  if(!response.ok){
-    const retryAfter=parseRetryAfter(response.headers.get('retry-after'));await response.body?.cancel();
-    throw analysisError('analysis_http_'+response.status,'Reset analysis HTTP '+response.status,{retryAfter,permanent:response.status>=400&&response.status<500&&![408,429].includes(response.status)});
-  }
+  if(!response.ok)throw await analysisHttpError(response);
   const data=JSON.parse(await readLimitedText(response,32768));
   if(data.candidates?.[0]?.finishReason!=='STOP')throw analysisError('analysis_summary','Summary repair incomplete');
   const raw=JSON.parse((data.candidates?.[0]?.content?.parts??[]).filter(part=>!part.thought).map(part=>part.text??'').join(''));
@@ -278,11 +271,36 @@ const validationCodes=new Map([
   ['Reset evidence missing','analysis_evidence'],['Current post evidence missing','analysis_current_evidence'],
 ]);
 function analysisError(code,message,fields={}) {return Object.assign(new Error(message),{code,...fields});}
-export function parseRetryAfter(value,now=Date.now()) {
+export function parseRetryAfter(value,now=Date.now(),maxSeconds=86400) {
   if(!value)return 0;
   const seconds=/^\d+(?:\.\d+)?$/.test(value)?Number(value):(Date.parse(value)-now)/1000;
-  return Number.isFinite(seconds)?Math.min(86400,Math.max(0,Math.ceil(seconds))):0;
+  return Number.isFinite(seconds)?Math.min(maxSeconds,Math.max(0,Math.ceil(seconds))):0;
 }
+async function analysisHttpError(response) {
+  const status=response.status;
+  // 7일 복구 기간보다 긴 지시는 정책에서 종료할 수 있도록 하루로 잘라내지 않는다.
+  const maxSeconds=status===429?7*86400+1:86400;
+  let retryAfter=parseRetryAfter(response.headers.get('retry-after'),Date.now(),maxSeconds);
+  if(status===429){
+    try{
+      const payload=JSON.parse(await readLimitedText(response,16384));
+      const details=payload?.error?.details;
+      for(const detail of Array.isArray(details)?details:[]){
+        if(detail?.['@type']!=='type.googleapis.com/google.rpc.RetryInfo')continue;
+        const duration=/^(\d+(?:\.\d{1,9})?)s$/.exec(detail.retryDelay);
+        if(duration)retryAfter=Math.max(retryAfter,parseRetryAfter(duration[1],Date.now(),maxSeconds));
+      }
+    }catch{
+      // 힌트가 없어도 원래 429 상태와 유효한 헤더는 유지한다.
+    }
+  }else{
+    await response.body?.cancel();
+  }
+  return analysisError('analysis_http_'+status,'Reset analysis HTTP '+status,{
+    retryAfter,permanent:status>=400&&status<500&&![408,429].includes(status),
+  });
+}
+
 export async function analyzeReset(env,post,options={}) {
   const started=Date.now();let calls=0;
   const onRequest=()=>{calls++;};

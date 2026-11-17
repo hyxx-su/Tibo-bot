@@ -43,6 +43,9 @@ export async function advancePost(db,row,token,phase,fields={}) {
     .bind(phase,fields.messageId??null,fields.resetMessageId??null,fields.analysis?JSON.stringify(fields.analysis):null,row.id,token).run();
 }
 
+// 429는 분 단위 제한일 수 있어 초기에 자주 재시도하고, 장시간 지속되면 다음 날에도 한 번 시도한다.
+const rateLimitDelays=[15,60,180,300,900,1800,3600,14400,86400];
+
 export function analysisRetryPolicy(row,error,now=Date.now()) {
   const validation=/^analysis_(?:schema|title|summary|type|type_evidence|evidence|current_evidence|summary_evidence|contradiction|json|truncated)$/.test(error.code??'');
   const transient=/^analysis_(?:http_(?:408|500|502|503|504)|timeout|network)$/.test(error.code??'');
@@ -51,10 +54,11 @@ export function analysisRetryPolicy(row,error,now=Date.now()) {
   const recoverable=validation||transient||limited;
   // 같은 analyze 작업과 발송 ID를 유지한다. 장기 장애는 Cron이 인덱스된 next_attempt로 재개한다.
   const recovery=recoverable&&attempts>=shortLimit;
-  const base=recovery?(attempts===shortLimit?21600:86400):[15,60,180,900,3600][Math.min(attempts-1,4)];
+  let base=recovery?(attempts===shortLimit?21600:86400):[15,60,180,900,3600][Math.min(attempts-1,4)];
+  if(limited)base=rateLimitDelays[Math.min(attempts-1,rateLimitDelays.length-1)];
   const delaySeconds=Math.ceil(Math.max(error.retryAfter??0,base));
   const expires=Number.isFinite(row.discovered_at)?row.discovered_at+7*86400000:Infinity;
-  const terminal=error.permanent===true||attempts>=(recoverable?10:shortLimit)||(recovery&&now+delaySeconds*1000>expires);
+  const terminal=error.permanent===true||attempts>=(recoverable?10:shortLimit)||((limited||recovery)&&now+delaySeconds*1000>expires);
   return {attempts,terminal,delaySeconds,recovery:recovery&&!terminal};
 }
 export async function retryPost(db,row,token,now,error) {
