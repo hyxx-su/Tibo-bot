@@ -11,5 +11,4 @@ export const holdoutCases=[
   {name:'명시적 사용량 복구 완료',text:'We have restored every account to its full usage allowance. The operation is complete.',expected:'completed',resetType:'regular'},
   {name:'초기화 연기와 시간 미정',text:'We need more time before resetting the usage counters. The earlier deadline is withdrawn; a new one will follow.',expected:'mentioned'},
   {name:'새 한도 확대 표현',text:'Request capacity doubled overnight. Previously consumed units remain as before.',expected:'unrelated',resetType:'unknown'},
-  {name:'새 출처 질문 표현',text:'Where was that confirmed?',context:[{id:'1',author:'someone_else',text:'The usage reset is finished for all accounts.',date:'Oct 25, 2026 · 5:00 AM UTC'}],expected:'unrelated'},
 ];

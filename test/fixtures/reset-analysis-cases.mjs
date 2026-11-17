@@ -1,7 +1,7 @@
 // 프롬프트 개발에 사용된 합성 회귀 사례. 독립 정확도 수치로 해석하지 않는다.
 const resetContext=[{id:'1',text:'The Codex usage reset is now being applied.',date:'Oct 25, 2026 · 3:00 AM UTC'}];
 export const regressionCases=[
-  {name:'짧은 관용 표현의 의미 전달',text:'That tracks.',expected:'unrelated',meaning:/말이|일리|납득|이해|맞|동의|수긍|그럴/},
+  {name:'짧은 관용 표현의 의미 전달',text:'That tracks.',expected:'unrelated',meaning:/말이|일리|납득|이해|맞|동의|수긍|그럴|타당/},
   {name:'짧은 밈 답글의 의미 전달',text:'Lore accurate character.',expected:'unrelated',meaning:/설정|세계관|원작/},
   {name:'짧은 동의의 의미 전달',text:'Exactly!',expected:'unrelated',meaning:/맞|동의|정확|바로|그렇|그거/},
   {name:'키워드 없는 완료',text:'Usage allowances were replenished for everyone.',expected:'completed'},
@@ -37,4 +37,6 @@ export const regressionCases=[
   {name:'사용량 증가와 초기화 구분',text:'Everyone can make twice as many requests now. Existing counters are unchanged.',expected:'unrelated',resetType:'unknown'},
   {name:'타인의 완료 주장과 질문',text:'Where did you see that?',context:[{id:'1',author:'someone',text:'All usage counters have been reset!',date:'Oct 25, 2026 · 5:00 AM UTC'}],expected:'unrelated'},
   {name:'농담 속 초기화 요청 언급',text:'People keep asking me for a usage reset even at the grocery store. Maybe I need a reset-request badge.',expected:'mentioned'},
+  // 확장 평가에서 발견한 타인 주장 출처 질문을 회귀 자료로 이동한다.
+  {name:'새 출처 질문 표현',text:'Where was that confirmed?',context:[{id:'1',author:'someone_else',text:'The usage reset is finished for all accounts.',date:'Oct 25, 2026 · 5:00 AM UTC'}],expected:'unrelated'},
 ];

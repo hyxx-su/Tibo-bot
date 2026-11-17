@@ -28,7 +28,7 @@ const mf=new Miniflare({
     if(url.hostname==='generativelanguage.googleapis.com'){
       if(aiStatus!==200)return new Response('unavailable',{status:aiStatus});
       const body=await request.json();const input=JSON.parse(body.contents[0].parts[0].text);calls.push({kind:'ai',text:input.text,context:input.context});
-      const contextHasReset=input.context.some(source=>/reset/i.test(source.text));
+      const contextHasReset=(input.context??[]).some(source=>/reset/i.test(source.text));
       let status='unrelated',time_expression='';
       if(['It is all propagated.','Still propagating.','Finished across every account.'].includes(input.text)&&contextHasReset)status=input.text==='Still propagating.'?'in_progress':'completed';
       else if(input.text.includes('will reset tomorrow at 9am PT.')){status='scheduled';time_expression='tomorrow at 9am PT';}
