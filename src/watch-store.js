@@ -43,19 +43,22 @@ export async function advancePost(db,row,token,phase,fields={}) {
     .bind(phase,fields.messageId??null,fields.resetMessageId??null,fields.analysis?JSON.stringify(fields.analysis):null,row.id,token).run();
 }
 
-export function analysisRetryPolicy(row,error) {
+export function analysisRetryPolicy(row,error,now=Date.now()) {
   const validation=/^analysis_(?:schema|title|summary|type|type_evidence|evidence|current_evidence|summary_evidence|contradiction|json|truncated)$/.test(error.code??'');
-  const attempts=row.attempts+1;
-  // 짧은 재시도 구간보다 긴 제공자 장애도 기존 메시지의 지연 보완 기회를 남긴다.
-  // 인증·검증 실패와 요청 제한에는 장기 재시도를 추가하지 않으며 일일 예산은 별도로 유지한다.
   const transient=/^analysis_(?:http_(?:408|500|502|503|504)|timeout|network)$/.test(error.code??'');
-  const terminal=error.permanent===true||attempts>=(validation?2:transient?6:4);
-  const base=[15,60,180,900,3600][Math.min(attempts-1,4)];
+  const limited=error.code==='analysis_http_429',attempts=row.attempts+1;
+  const shortLimit=validation?2:transient?6:4;
+  const recoverable=validation||transient||limited;
+  // 같은 analyze 작업과 발송 ID를 유지한다. 장기 장애는 Cron이 인덱스된 next_attempt로 재개한다.
+  const recovery=recoverable&&attempts>=shortLimit;
+  const base=recovery?(attempts===shortLimit?21600:86400):[15,60,180,900,3600][Math.min(attempts-1,4)];
   const delaySeconds=Math.ceil(Math.max(error.retryAfter??0,base));
-  return {attempts,terminal,delaySeconds};
+  const expires=Number.isFinite(row.discovered_at)?row.discovered_at+7*86400000:Infinity;
+  const terminal=error.permanent===true||attempts>=(recoverable?10:shortLimit)||(recovery&&now+delaySeconds*1000>expires);
+  return {attempts,terminal,delaySeconds,recovery:recovery&&!terminal};
 }
 export async function retryPost(db,row,token,now,error) {
-  const policy=row.phase==='analyze'?analysisRetryPolicy(row,error):{
+  const policy=row.phase==='analyze'?analysisRetryPolicy(row,error,now):{
     attempts:row.attempts+1,terminal:row.attempts>=5||error.permanent===true,
     delaySeconds:Math.max(error.retryAfter??0,[60,120,300,900,3600,3600][Math.min(row.attempts,5)]),
   };

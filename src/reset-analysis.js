@@ -248,7 +248,7 @@ async function repairSummary(env,post,result,targets,timeoutMs,onRequest) {
   if(!raw||!Array.isArray(raw.replacements)||raw.replacements.length!==fields.length)throw analysisError('analysis_summary','Summary repair fields missing');
   const patched={...result,bullets:[...(result.bullets??[result.summary_ko])],bullet_evidence:[...(result.bullet_evidence??[])],summary_review_evidence:[]},seen=new Set();
   for(const item of raw.replacements){
-    const quotes=Array.isArray(item?.evidence)?item.evidence:[item?.evidence];
+    const quotes=(Array.isArray(item?.evidence)?item.evidence:[item?.evidence]).map(quote=>[post,...(post.context??[])].map(source=>restoreSourceQuote(source.text,quote)).find(value=>value!==null)??quote);
     if(!item||typeof item!=='object'||!fields.includes(item.field)||seen.has(item.field)||typeof item.text!=='string'||!item.text.trim()||item.text.length>(item.field==='title_ko'?60:180)||quotes.length<1||quotes.length>4||quotes.some(quote=>typeof quote!=='string'||!quote.trim()||![post,...(post.context??[])].some(source=>typeof source.text==='string'&&source.text.includes(quote))))throw analysisError('analysis_summary_evidence','Invalid summary repair');
     seen.add(item.field);patched.summary_review_evidence.push({text:item.text.trim(),quotes});
     if(item.field==='title_ko'){patched.title_ko=item.text.trim();patched.title_evidence=quotes;}
@@ -306,6 +306,28 @@ export async function analyzeReset(env,post,options={}) {
     throw analysisError(code,validationCodes.has(error.message)||/^Reset analysis HTTP \d{3}$/.test(error.message)?error.message:'Reset analysis failed',{permanent:error.permanent===true||error.code==='body_too_large',retryAfter:error.retryAfter??0,durationMs:Date.now()-started,calls});
   }
 }
+// HTMLRewriter의 원문 엔티티와 모델이 표시 문자로 옮긴 인용을 대조한다.
+// 일치한 구절은 원래 저장 문자열로 돌려 후속 검증의 정확한 인용 계약을 유지한다.
+function restoreSourceQuote(source,quote) {
+  if(typeof source!=='string'||typeof quote!=='string'||!quote)return null;
+  if(source.includes(quote))return quote;
+  const decode=value=>{
+    const starts=[],ends=[];let text='',cursor=0;
+    const append=(value,start,end)=>{text+=value;for(let i=0;i<value.length;i++){starts.push(start);ends.push(end);}};
+    const names={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:'\u00a0'};
+    for(const match of value.matchAll(/&(?:amp|lt|gt|quot|apos|nbsp|#\d{1,7}|#x[0-9a-fA-F]{1,6});/g)){
+      for(;cursor<match.index;cursor++)append(value[cursor],cursor,cursor+1);
+      const entity=match[0].slice(1,-1),code=entity.startsWith('#')?Number.parseInt(entity.slice(entity[1]==='x'?2:1),entity[1]==='x'?16:10):null;
+      const decoded=code===null?names[entity]:code>0&&code<=0x10ffff&&!(code>=0xd800&&code<=0xdfff)?String.fromCodePoint(code):match[0];
+      append(decoded,match.index,match.index+match[0].length);cursor=match.index+match[0].length;
+    }
+    for(;cursor<value.length;cursor++)append(value[cursor],cursor,cursor+1);
+    return {text,starts,ends};
+  };
+  const original=decode(source),wanted=decode(quote).text,index=original.text.indexOf(wanted);
+  return index<0?null:source.slice(original.starts[index],original.ends[index+wanted.length-1]);
+}
+
 function validateSummaryEvidence(post,result) {
   // 이전 저장 분석 형식은 읽되, 새 스키마의 근거가 있으면 현재 입력과 대조한다.
   const sources=[post,...(post.context??[])].map(source=>source.text).filter(text=>typeof text==='string');
@@ -313,7 +335,9 @@ function validateSummaryEvidence(post,result) {
     let evidence=result[key];if(evidence===undefined)continue;
     // 같은 원문에서 순서가 확인되는 생략 인용만 연속 구절로 복원한다. 서로 다른 글은 합치지 않는다.
     if(Array.isArray(evidence))result[key]=evidence=evidence.map(quote=>{
-      if(typeof quote!=='string'||sources.some(source=>source.includes(quote)))return quote;
+      if(typeof quote!=='string')return quote;
+      const restored=sources.map(source=>restoreSourceQuote(source,quote)).find(value=>value!==null);
+      if(restored!==undefined)return restored;
       let parts=quote.split(/\.{3}|…/).map(part=>part.trim());
       if(parts.length<2)parts=(quote.match(/[^.!?]+[.!?]+|[^.!?]+$/g)??[]).map(part=>part.trim());
       if(parts.length<2||parts.some(part=>part.length<8))return quote;

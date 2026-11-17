@@ -87,9 +87,9 @@ async function processPostStage(env,job) {
       log({event:'watch-analysis-fallback',postId:row.id,code:error.code??'processing_failed',analysis_ms:error.durationMs,ai_calls:error.calls});
     }else{
       const action=await retryPost(env.DB,row,token,Date.now(),error);
-      log({event:'watch-post',postId:row.id,phase:row.phase,action,code:error.code??'processing_failed',analysis_ms:error.durationMs,ai_calls:error.calls});
-      if(action==='retry'&&row.phase==='analyze'){
-        // 지연 Queue 발행이 실패해도 Cron이 D1의 next_attempt를 읽어 복구한다.
+      log({event:'watch-post',postId:row.id,phase:row.phase,action,code:error.code??'processing_failed',analysis_ms:error.durationMs,ai_calls:error.calls,recovery:policy.recovery});
+      if(action==='retry'&&row.phase==='analyze'&&!policy.recovery){
+        // 짧은 지연만 Queue에 넣는다. 장기 대기와 발행 실패는 Cron이 next_attempt로 복구한다.
         try{await env.PROBE_JOBS.send({kind:'watch-post',postId:row.id,phase:row.phase},{delaySeconds:policy.delaySeconds});}
         catch{log({event:'watch-dispatch-deferred'});}
       }
