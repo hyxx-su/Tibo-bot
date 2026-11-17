@@ -89,9 +89,11 @@ try{
     await reset();failure=503;await postJob('link');await send();
     failure=code==='validation'?0:code;invalidEvidence=code==='validation';
     await db.prepare('UPDATE watched_posts SET attempts=?,next_attempt=0').bind(attempts).run();jobs.length=0;
-    await postJob('analyze');const waiting=await row();
+    const beforeFailure=Date.now();await postJob('analyze');const waiting=await row();
     assert.equal(waiting.phase,'analyze');assert.equal(waiting.analysis_json,null);assert.equal(waiting.attempts,attempts+1);
-    assert.ok(waiting.next_attempt>Date.now()+21500000);assert.equal(jobs.filter(j=>j.body.kind==='watch-post').length,0);
+    const delayMs=code===429?900000:21600000; // 429 응답은 Retry-After 900초를 지정한다.
+    assert.ok(waiting.next_attempt>=beforeFailure+delayMs&&waiting.next_attempt<=Date.now()+delayMs);
+    assert.equal(jobs.filter(j=>j.body.kind==='watch-post').length,0);
     assert.deepEqual(await pendingJobs(db,waiting.next_attempt-1),[]);
     assert.equal((await pendingJobs(db,waiting.next_attempt))[0].body.postId,'100');
     const before=calls.filter(c=>c.kind==='analysis').length;await postJob('analyze');assert.equal(calls.filter(c=>c.kind==='analysis').length,before);
@@ -111,9 +113,16 @@ try{
     const now=Date.now(),error={code:'analysis_http_429'};
     assert.equal(analysisRetryPolicy({attempts:9,discovered_at:now},error,now).terminal,true);
     assert.equal(analysisRetryPolicy({attempts:6,discovered_at:now-7*86400000},error,now).terminal,true);
-    assert.equal(analysisRetryPolicy({attempts:6,discovered_at:now},error,now).delaySeconds,86400);
+    assert.equal(analysisRetryPolicy({attempts:6,discovered_at:now},error,now).delaySeconds,3600);
     assert.equal(analysisRetryPolicy({attempts:3,discovered_at:now},{...error,retryAfter:80000},now).delaySeconds,80000);
     assert.equal(analysisRetryPolicy({attempts:3,discovered_at:now-7*86400000+1000},error,now).terminal,true);
+  });
+  await test('429의 단기 제한과 지속 장애 모두에 복구 기회를 남긴다',()=>{
+    const now=Date.now(),error={code:'analysis_http_429'};
+    const policies=Array.from({length:10},(_,attempts)=>analysisRetryPolicy({attempts,discovered_at:now},error,now));
+    assert.deepEqual(policies.filter(p=>!p.terminal).map(p=>p.delaySeconds),[15,60,180,300,900,1800,3600,14400,86400]);
+    assert.equal(policies.at(-1).terminal,true);
+    assert.equal(analysisRetryPolicy({attempts:0,discovered_at:now},{...error,retryAfter:604801},now).terminal,true);
   });
   await test('기존 메시지가 삭제되었으면 복구 PATCH를 새 POST로 바꾸지 않는다',async()=>{
     await reset();failure=503;await postJob('link');await send();failure=0;

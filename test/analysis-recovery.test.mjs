@@ -14,6 +14,19 @@ try{
       assert.equal(error.permanent,[400,401,403].includes(status));assert.doesNotMatch(error.message,/SECRET/);return true;
     });
   });
+  await test('Gemini 429 헤더와 구조화 대기 시간 중 더 긴 값을 초 단위로 올린다',async()=>{
+    const info=retryDelay=>({'@type':'type.googleapis.com/google.rpc.RetryInfo',retryDelay});
+    for(const [header,details,expected] of [
+      [undefined,[info('421.3s')],422],['900',[info('15s')],900],['120',[info('900.1s')],901],
+      [undefined,[{'@type':'unknown',retryDelay:'999s'},info('-2s')],0],
+      ['172800',[],172800],
+    ]){
+      globalThis.fetch=async()=>Response.json({error:{details}},{status:429,headers:header?{'Retry-After':header}:{}});
+      await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_http_429'&&e.retryAfter===expected);
+    }
+    globalThis.fetch=async()=>new Response('x'.repeat(16385),{status:429,headers:{'Retry-After':'60'}});
+    await assert.rejects(analyzeReset({GEMINI_API_KEY:'fixture'},post),e=>e.code==='analysis_http_429'&&e.retryAfter===60);
+  });
   await test('HTTP 날짜 형식과 잘못된 Retry-After를 처리한다',()=>{
     assert.equal(parseRetryAfter('Sun, 01 Nov 2026 12:01:00 GMT',Date.parse(post.date)),60);
     assert.equal(parseRetryAfter('invalid'),0);assert.equal(parseRetryAfter('999999'),86400);
