@@ -64,10 +64,10 @@ async function processPostStage(env,job) {
         await queueDeliveries(env,row,`https://x.com/thsottiaux/status/${row.id}`,'link');
         await deferAnalysis(env.DB,row,token,Date.now());await dispatchPending(env);log({event:'watch-analysis-budget'});return;
       }
-      const analysis=await analyzeReset(env,await resolveQuoteContext(env.DB,post),{reviewCode:row.last_error});
+      const analysis=await analyzeReset(env,await resolveQuoteContext(env.DB,post),{reviewCode:row.last_error,reserveReview:()=>reserveAnalysis(env.DB,Date.now(),limit)});
       next=analysis.status==='unrelated'?'link':'reset';
       await advancePost(env.DB,row,token,next,{analysis});
-      log({event:'watch-analysis',postId:row.id,analysis_ms:analysis.metrics?.analysis_ms,review:analysis.metrics?.review,discovery_to_analysis_ms:Date.now()-row.discovered_at,status:analysis.status,timeResolved:Boolean(analysis.time),totalTokens:analysis.usage?.totalTokenCount});
+      log({event:'watch-analysis',postId:row.id,analysis_ms:analysis.metrics?.analysis_ms,review:analysis.metrics?.review,ai_calls:analysis.metrics?.calls,summary_review:analysis.metrics?.summary_review,inputTokens:analysis.usage?.promptTokenCount,outputTokens:analysis.usage?.candidatesTokenCount,thinkingTokens:analysis.usage?.thoughtsTokenCount,discovery_to_analysis_ms:Date.now()-row.discovered_at,status:analysis.status,timeResolved:Boolean(analysis.time),totalTokens:analysis.usage?.totalTokenCount});
     }else if(row.phase==='reset'){
       const content=resetNotification(post,JSON.parse(row.analysis_json));
       if(!content)throw new Error('Reset notification missing');
@@ -84,10 +84,10 @@ async function processPostStage(env,job) {
     const policy=analysisRetryPolicy(row,error);
     if(row.phase==='analyze'&&policy.terminal){
       next='link';await advancePost(env.DB,row,token,next,{analysis:{status:'unavailable',failure_code:error.code??'processing_failed'}});
-      log({event:'watch-analysis-fallback',postId:row.id,code:error.code??'processing_failed'});
+      log({event:'watch-analysis-fallback',postId:row.id,code:error.code??'processing_failed',analysis_ms:error.durationMs,ai_calls:error.calls});
     }else{
       const action=await retryPost(env.DB,row,token,Date.now(),error);
-      log({event:'watch-post',postId:row.id,phase:row.phase,action,code:error.code??'processing_failed',analysis_ms:error.durationMs});
+      log({event:'watch-post',postId:row.id,phase:row.phase,action,code:error.code??'processing_failed',analysis_ms:error.durationMs,ai_calls:error.calls});
       if(action==='retry'&&row.phase==='analyze'){
         // 지연 Queue 발행이 실패해도 Cron이 D1의 next_attempt를 읽어 복구한다.
         try{await env.PROBE_JOBS.send({kind:'watch-post',postId:row.id,phase:row.phase},{delaySeconds:policy.delaySeconds});}
@@ -129,7 +129,7 @@ async function reviewBankedPost(env,postId) {
   if(previous?.banked_review_version===1||previous?.reset_type!=='banked'||!['in_progress','mentioned'].includes(previous.status)||!/^Banked\s+[1-9]\d*\s*\/\s*[1-9]\d*[.!]?$/i.test(row.body.trim()))return;
   if(!await reserveAnalysis(env.DB,Date.now(),Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100))))throw new Error('Review analysis budget');
   const post=await resolveQuoteContext(env.DB,{id:row.id,text:row.body,date:row.published_at,context:JSON.parse(row.context_json??'[]')});
-  const analysis={...await analyzeReset(env,post),banked_review_version:1,banked_review_id:crypto.randomUUID()};
+  const analysis={...await analyzeReset(env,post,{reserveReview:()=>reserveAnalysis(env.DB,Date.now(),Math.min(100,Math.max(1,Number(env.RESET_ANALYSIS_DAILY_LIMIT)||100)))}),banked_review_version:1,banked_review_id:crypto.randomUUID()};
   const saved=JSON.stringify(analysis),content=postNotification(post,analysis);
   // 읽은 뒤 분석이 바뀌었다면 덮어쓰지 않는다. 기존 메시지 ID를 보존해 수정 발송한다.
   await env.DB.batch([
